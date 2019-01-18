@@ -1,0 +1,225 @@
+#!/bin/sh
+# vim: set ft=sh
+
+set -e
+
+exec 3>&1 # make stdout available as fd 3 for the result
+exec 1>&2 # redirect all output to stderr for logging
+
+destination=$1
+
+if [ -z "$destination" ]; then
+  echo "usage: $0 <path/to/destination>" >&2
+  exit 1
+fi
+
+# save the input in a tmp file
+payload=$(mktemp /tmp/resource-check.XXXXXX)
+
+cat > "$payload" <&0
+
+# project/app name
+name=$(jq -r '.source.name' < "$payload")
+export name
+# S3 bucket where the release file is stored
+bucket=$(jq -r '.source.bucket // ""' < "$payload")
+# version of the release to fetch
+version=$(jq -r '.version.version // 0' < "$payload")
+# flag for deploy releases
+is_deploy=$(jq -r '.source.is_deploy // false' < "$payload")
+# environment's name
+environment=$(jq -r '.source.environment // "staging"' < "$payload")
+export environment
+# bucket containing the environment deploys
+deploy_bucket=$(jq -r ".source.deploy_bucket" < "$payload")
+export deploy_bucket
+
+# AWS credentials
+AWS_ACCESS_KEY_ID=$(jq -r '.source.aws_access_key_id // ""' < "$payload")
+export AWS_ACCESS_KEY_ID
+
+AWS_SECRET_ACCESS_KEY=$(jq -r '.source.aws_secret_access_key // ""' < "$payload")
+export AWS_SECRET_ACCESS_KEY
+
+AWS_SESSION_TOKEN=$(jq -r '.source.aws_session_token // ""' < "$payload")
+export AWS_SESSION_TOKEN
+
+if [ -z "$name" ]; then
+  echo "parameter 'name' is required"
+  exit 1
+fi
+
+if [ -z "$version" ]; then
+  echo "'version' is required"
+  exit 1
+fi
+
+if [ -n "$bucket" ]; then
+  export CATAPULT_BUCKET_RELEASES=$bucket
+fi
+
+release=$(mktemp /tmp/release.XXXXXX)
+
+if [ "$is_deploy" = "true" ]; then
+    if [ -z "$deploy_bucket" ]; then
+      echo "parameter 'deploy_bucket' is required when 'is_deploy' is true"
+      exit 1
+    fi
+
+    # XXX use deploy.current when available
+    export CATAPULT_BUCKET_RELEASES=$deploy_bucket
+fi
+catapult release.get "$name" "$version" > "$release"
+
+version=$(jq -r '.version' < "$release")
+export version
+
+author=$(jq -r '.author' < "$release")
+export author
+
+commit=$(jq -r '.commit' < "$release")
+export commit
+
+image=$(jq -r '.image' < "$release")
+export image
+
+
+changelog=$(jq -r '.changelog' < "$release")
+export changelog
+
+s3_version_id=$(jq -r '.version_id' < "$release")
+export s3_version_id
+
+cp "$release" "$destination/release.json"
+
+echo "$environment" > "$destination/environment"
+
+jq -r '.version' < "$release" > "$destination/version"
+jq -r '.commit' < "$release" > "$destination/commit"
+jq -r '.image' < "$release" > "$destination/image-id"
+jq -r '.changelog' < "$release" > "$destination/changelog"
+
+### create slack message
+message_ts=$(date +%s)
+export message_ts
+
+build_url=$ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME
+export build_url
+
+if [ "$is_deploy" = "true" ]; then
+    # shellcheck disable=SC2016
+    jq -n '[
+      {
+        "fallback": "Deploying \(env.name) v\(env.version) on \(env.environment)",
+        "color": "#000",
+        "pretext": "Deploying \(env.name) v\(env.version) on \(env.environment) :rocket:",
+        "author_name": env.author,
+        "title": "Deploy \(env.name) v\(env.version)",
+        "title_link": env.PIPELINE_URL,
+        "fields": [
+          {
+            "title": "Version",
+            "value": env.version,
+            "short": true
+          },
+          {
+            "title": "Concourse",
+            "value": env.build_url,
+            "short": true
+          },
+          {
+            "title": "Commit :github:",
+            "value": env.commit,
+            "short": true
+          },
+          {
+            "title": "Environment",
+            "value": env.environment,
+            "short": true
+          },
+          {
+            "title": "Changelog",
+            "value": "```\n\(env.changelog)\n```",
+            "short": false
+          }
+        ],
+        "footer": "Concourse CI",
+        "footer_icon": "https://concourse-ci.org/images/trademarks/concourse-black.png",
+        "ts": env.message_ts | tonumber
+      }
+    ]' > "$destination/message.json"
+else
+    # shellcheck disable=SC2016
+    jq -n '[
+      {
+        "fallback": "New release: \(env.name) v\(env.version)",
+        "color": "#36a64f",
+        "pretext": "New release: \(env.name) v\(env.version) :tada:",
+        "author_name": env.author,
+        "title": "\(env.name) v\(env.version)",
+        "title_link": env.PIPELINE_URL,
+        "fields": [
+          {
+            "title": "Version",
+            "value": env.version,
+            "short": true
+          },
+          {
+            "title": "Concourse",
+            "value": env.build_url,
+            "short": true
+          },
+          {
+            "title": "Commit :github:",
+            "value": env.commit,
+            "short": true
+          },
+          {
+            "title": "Changelog",
+            "value": "```\n\(env.changelog)\n```",
+            "short": false
+          }
+        ],
+        "footer": "Concourse CI",
+        "footer_icon": "https://concourse-ci.org/images/trademarks/concourse-black.png",
+        "ts": env.message_ts | tonumber
+      }
+    ]' > "$destination/message.json"
+fi
+
+# create metadata used by docker build
+jq -n '{
+    "org.opencontainers.image.version": env.version,
+    "org.opencontainers.image.revision": env.commit,
+}' > "$destination/docker_labels.json"
+
+
+if [ "$is_deploy" = "true" ]; then
+    jq -n '{
+      version: {
+        version: env.version,
+        deploy: env.s3_version_id
+      },
+      metadata: [
+        { name: "commit", value: env.commit },
+        { name: "author", value: env.author },
+        { name: "image id", value: env.image },
+        { name: "s3 version id", value: env.s3_version_id },
+        { name: "changelog", value: env.changelog },
+        { name: "environment", value: env.environment }
+      ]
+    }' >&3
+else
+    jq -n '{
+      version: {
+        version: env.version
+      },
+      metadata: [
+        { name: "commit", value: env.commit },
+        { name: "author", value: env.author },
+        { name: "image id", value: env.image },
+        { name: "s3 version id", value: env.s3_version_id },
+        { name: "changelog", value: env.changelog }
+      ]
+    }' >&3
+fi

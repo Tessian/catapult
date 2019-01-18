@@ -1,0 +1,69 @@
+#!/bin/sh
+# vim: set ft=sh
+
+set -e
+
+exec 3>&1 # make stdout available as fd 3 for the result
+exec 1>&2 # redirect all output to stderr for logging
+
+
+# save the input in a tmp file
+payload=$(mktemp /tmp/resource-check.XXXXXX)
+
+cat > "$payload" <&0
+
+# project/app name
+name=$(jq -r '.source.name' < "$payload")
+# S3 bucket where the release file is stored
+bucket=$(jq -r '.source.bucket // ""' < "$payload")
+# flag for deploy releases
+is_deploy=$(jq -r '.source.is_deploy // false' < "$payload")
+# bucket containing the environment deploys
+deploy_bucket=$(jq -r ".source.deploy_bucket" < "$payload")
+
+
+# AWS credentials
+AWS_ACCESS_KEY_ID=$(jq -r '.source.aws_access_key_id // ""' < "$payload")
+export AWS_ACCESS_KEY_ID
+
+AWS_SECRET_ACCESS_KEY=$(jq -r '.source.aws_secret_access_key // ""' < "$payload")
+export AWS_SECRET_ACCESS_KEY
+
+AWS_SESSION_TOKEN=$(jq -r '.source.aws_session_token // ""' < "$payload")
+export AWS_SESSION_TOKEN
+
+if [ -z "$name" ]; then
+  echo "parameter 'name' is required"
+  exit 1
+fi
+
+if [ -n "$bucket" ]; then
+  export CATAPULT_BUCKET_RELEASES=$bucket
+fi
+
+release=$(mktemp /tmp/release.XXXXXX)
+
+if [ "$is_deploy" = "true" ]; then
+    # XXX use deploy.current when available
+    export CATAPULT_BUCKET_RELEASES=$deploy_bucket
+
+    if [ -z "$deploy_bucket" ]; then
+      echo "parameter 'deploy_bucket' is required when 'is_deploy' is true"
+      exit 1
+    fi
+fi
+
+catapult release.current "$name" > "$release"
+
+version=$(jq '.version' < "$release")
+export version
+
+s3_version_id=$(jq -r '.version_id' < "$release")
+export s3_version_id
+
+if [ "$is_deploy" = "true" ]; then
+    jq -n "[ { version: env.version, deploy: env.s3_version_id } ]" >&3
+else
+    jq -n "[ { version: env.version } ]" >&3
+fi
+

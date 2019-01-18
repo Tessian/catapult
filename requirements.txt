@@ -1,0 +1,11 @@
+boto3==1.7.48
+colorama==0.4.1
+dataclasses==0.6
+invoke==1.0.0
+pygit2==0.27.1
+pytz==2018.5
+tabulate==0.8.2
+emoji==0.5.1
+termcolor==1.1.0
+toml==0.10.0
+wrapt==1.10.11
