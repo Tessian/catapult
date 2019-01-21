@@ -1,9 +1,7 @@
-Catapult
-========
+<img src="media/logo.png" height="64" alt="catapult logo"> Catapult
+===================================================================
 
 Command to create, deploy, and manage releases.
-
-![Catapult](media/logo.png?raw=true =250x)
 
 Install
 -------
