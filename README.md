@@ -1,5 +1,7 @@
-<img src="media/logo.png" height="32" alt="catapult logo"> Catapult
-===================================================================
+<img src="media/logo.png" height="256" alt="catapult logo">
+
+Catapult
+========
 
 Command to create, deploy, and manage releases.
 
