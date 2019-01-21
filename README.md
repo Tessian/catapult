@@ -1,9 +1,9 @@
 Catapult
 ========
 
-<p align="center"><img src="media/logo.png" height="256" alt="catapult logo"></p>
-
 CLI Tool to create, deploy, and manage releases.
+
+<p align="center"><img src="media/logo.png" height="256" alt="catapult logo"></p>
 
 Install
 -------
