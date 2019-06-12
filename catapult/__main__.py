@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import invoke
+import boto3
 
 from catapult.deploy import deploy
 from catapult.release import release
@@ -69,6 +70,7 @@ def _main():
     logging.basicConfig(
         level=os.environ.get("LOGLEVEL", "INFO").upper(), stream=sys.stderr
     )
+    boto3.set_stream_logger("botocore.vendored.requests", logging.ERROR)
 
     invoke.Program(
         version=__version__,

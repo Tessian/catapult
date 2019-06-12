@@ -43,7 +43,7 @@ def start(
         release = get_release(client, name, int(version))
 
     if release is None:
-        LOG.critical("release not found")
+        LOG.critical("Release not found")
         sys.exit(1)
 
     if bucket is None:
@@ -76,31 +76,32 @@ def start(
         return
 
     if release.rollback:
-        utils.warning("this is a rollback! :warning:\n")
+        utils.warning("This is a rollback! :warning:\n")
 
         if not rollback:
-            utils.warning("missing flag --rollback\n")
-            utils.error("aborted!\n")
+            utils.warning("Missing flag --rollback\n")
+            utils.error("Aborted!\n")
             sys.exit(1)
 
     if not yes:
 
         if release.rollback:
             ok = utils.confirm(
-                "sure you want to start a rollback?", style=utils.TextStyle.warning
+                "Are you sure you want to start a rollback deployment?",
+                style=utils.TextStyle.warning,
             )
 
             if not ok:
-                utils.error("aborted!\n")
+                utils.error("Aborted!\n")
                 sys.exit(1)
 
-        ok = utils.confirm("sure you want to create this release?")
+        ok = utils.confirm("Are you sure you want to start this deployment?")
         if not ok:
-            utils.error("aborted!\n")
+            utils.error("Aborted!\n")
             sys.exit(1)
 
-    release = put_release(client, bucket, name, release)
-    utils.success("started new deployment :rocket:\n")
+    put_release(client, bucket, name, release)
+    utils.success("Started new deployment :rocket:\n")
 
 
 @invoke.task(
@@ -126,7 +127,7 @@ def current(_, name, env, bucket=None):
         utils.printfmt(last_deploy)
 
     else:
-        LOG.critical("release does not exist")
+        LOG.critical("Release does not exist")
         sys.exit(1)
 
 
