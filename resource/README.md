@@ -43,9 +43,13 @@ The following files will be placed in the destination:
   It contains all the information regarding the release.
 * `version`: the release's version.
 * `commit`: hash ref of the released git commit.
-* `image`: ID of the released docker image.
+* `image-id`: ID of the released docker image.
 * `changelog`: text describing the changes included in the release.
 * `environment`: name of the environment.
+* `git-tag`: Tag in the format `<app-name>-v<version>`, eg `my_app-v42`. For use by
+  `git-resource`'s `out` step. (See the
+  [git-resource docs](https://github.com/concourse/git-resource#parameters-1) for more
+  information.)
 
 #### Parameters
 
