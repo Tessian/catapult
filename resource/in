@@ -90,14 +90,14 @@ export changelog
 s3_version_id=$(jq -r '.version_id' < "$release")
 export s3_version_id
 
+# Write release metadata files to $destination
 cp "$release" "$destination/release.json"
-
 echo "$environment" > "$destination/environment"
-
-jq -r '.version' < "$release" > "$destination/version"
-jq -r '.commit' < "$release" > "$destination/commit"
-jq -r '.image' < "$release" > "$destination/image-id"
-jq -r '.changelog' < "$release" > "$destination/changelog"
+echo "$version" > "$destination/version"
+echo "$commit" > "$destination/commit"
+echo "$image" > "$destination/image-id"
+echo "$changelog" > "$destination/changelog"
+echo "$name-v$version" > "$destination/git-tag"
 
 ### create slack message
 message_ts=$(date +%s)
