@@ -57,13 +57,13 @@ def _get_release(client, bucket, key, version_id=None):
         resp = client.get_object(Bucket=bucket, Key=key, **extras)
 
     except client.exceptions.NoSuchKey:
-        raise InvalidRelease(f"key not found: {key}")
+        raise InvalidRelease(f"Key not found: {key}")
 
     try:
         body = json.load(resp["Body"])
 
     except json.JSONDecodeError as exc:
-        raise InvalidRelease("invalid JSON data") from exc
+        raise InvalidRelease("Invalid JSON data") from exc
 
     try:
         version = body["version"]
@@ -73,11 +73,11 @@ def _get_release(client, bucket, key, version_id=None):
         rollback = body.get("rollback", False)
 
     except KeyError as exc:
-        raise InvalidRelease(f"missing property in JSON: {exc}")
+        raise InvalidRelease(f"Missing property in JSON: {exc}")
 
     if "VersionId" not in resp:
         # files created when the bucket had the versioning disabled
-        raise InvalidRelease("object has not a S3 version ID")
+        raise InvalidRelease("Object has no S3 VersionId")
 
     return Release(
         version=version,
@@ -132,7 +132,7 @@ def get_releases(client, key, since=None, bucket=None):
 
         except InvalidRelease as exc:
             # skip invalid releases in object history
-            LOG.warning(f"invalid release object: {exc}")
+            LOG.warning(f"Invalid release object: {exc}")
             continue
 
         if since and release.version < since:
@@ -209,6 +209,7 @@ def _get_image_id(ctx, commit, *, name, image_name):
 
     image = f"{image_base}/{image_name}:ref-{commit}"
 
+    LOG.info(f"Pulling {image}")
     res = ctx.run(f"docker pull {image}", hide="out")
 
     for line in res.stdout.split("\n"):
@@ -231,7 +232,7 @@ def current(_, name):
         utils.printfmt(release)
 
     else:
-        LOG.critical("release does not exist")
+        LOG.critical("Release does not exist")
         sys.exit(1)
 
 
@@ -247,7 +248,7 @@ def get(_, name, version):
         utils.printfmt(release)
 
     else:
-        LOG.critical("release does not exist")
+        LOG.critical("Release does not exist")
         sys.exit(1)
 
 
@@ -310,7 +311,7 @@ def new(
 
     image_id = _get_image_id(ctx, commit, name=name, image_name=image_name)
     if image_id is None:
-        LOG.critical("image ID not found")
+        LOG.critical("Image ID not found")
         sys.exit(1)
 
     changelog = utils.changelog(repo, commit, latest and latest.commit)
@@ -332,31 +333,32 @@ def new(
         return
 
     if release.rollback:
-        utils.warning("this is a rollback! :warning:\n")
+        utils.warning("This is a rollback! :warning:\n")
 
         if not rollback:
-            utils.warning("missing flag --rollback\n")
-            utils.error("aborted!\n")
+            utils.warning("Missing flag --rollback\n")
+            utils.error("Aborted!\n")
             sys.exit(1)
 
     if not yes:
 
         if release.rollback:
             ok = utils.confirm(
-                "sure you want to start a rollback?", style=utils.TextStyle.warning
+                "Are you sure you want to create a rollback release?",
+                style=utils.TextStyle.warning,
             )
 
             if not ok:
-                utils.error("aborted!\n")
+                utils.error("Aborted!\n")
                 sys.exit(1)
 
-        ok = utils.confirm("sure you want to create this release?")
+        ok = utils.confirm("Are you sure you want to create this release?")
         if not ok:
             sys.exit(1)
 
     put_release(client, utils.get_config()["release"]["s3_bucket"], name, release)
 
-    utils.success("created new release :tada:\n")
+    utils.success("Created new release :tada:\n")
 
 
 @invoke.task(
@@ -388,7 +390,7 @@ def find(_, name, commit=None):
         utils.printfmt(release)
 
     else:
-        LOG.error("commit not released yet")
+        LOG.error("Commit not released yet")
 
 
 @invoke.task(

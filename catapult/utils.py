@@ -36,11 +36,11 @@ try:
     )
 
     if _SESSION["aws_session_expiration"] < datetime.utcnow():
-        LOG.warning("stored session has expired")
+        LOG.warning("Stored session has expired")
         _SESSION = None
 
 except Exception as exc:
-    LOG.error("cannot load catapult session: " + str(exc))
+    LOG.error("Cannot load catapult session: " + str(exc))
     pass
 
 
@@ -213,12 +213,12 @@ def git_repo():
 
         # pylint: disable=no-member
         if git_path.is_dir():
-            logging.debug(f"using repository: {git_path}")
+            logging.debug(f"Using repository: {git_path}")
             return git.Repository(str(git_path))
 
         if path.parent == path:
             # reached '/'
-            logging.error(f"cannot find git repository")
+            logging.error(f"Cannot find git repository")
             return None
 
         path = path.parent
@@ -229,7 +229,7 @@ def get_author(repo):
     emails = list(repo.config.get_multivar("user.email"))
 
     if not emails:
-        LOG.critical("cannot find author email")
+        LOG.critical("Cannot find author email")
         return None
 
     return emails[0]
