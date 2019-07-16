@@ -200,11 +200,14 @@ def put_release(client, bucket, key, release):
     )
 
 
-def _get_image_id(ctx, name, commit):
+def _get_image_id(ctx, commit, *, name, image_name):
     image_base = utils.get_config()["release"]["docker_repository"]
-    image_prefix = utils.get_config()["release"]["docker_image_prefix"]
 
-    image = f"{image_base}/{image_prefix}{name}:ref-{commit}"
+    if image_name is None:
+        image_prefix = utils.get_config()["release"]["docker_image_prefix"]
+        image_name = f"{image_prefix}{name}"
+
+    image = f"{image_base}/{image_name}:ref-{commit}"
 
     res = ctx.run(f"docker pull {image}", hide="out")
 
@@ -305,7 +308,7 @@ def new(
     else:
         version = int(version)
 
-    image_id = _get_image_id(ctx, image_name or name, commit)
+    image_id = _get_image_id(ctx, commit, name=name, image_name=image_name)
     if image_id is None:
         LOG.critical("image ID not found")
         sys.exit(1)
