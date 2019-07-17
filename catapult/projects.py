@@ -39,10 +39,11 @@ class Project(NamedTuple):
         "contains": "Full SHA-1 hash of a commit in the current repo",
         "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
         "reverse": "reverse-sort the output",
+        "only": "comma-separated list of apps to list",
     },
 )
 @utils.require_2fa
-def ls(_, contains=None, sort=None, reverse=False):
+def ls(_, contains=None, sort=None, reverse=False, only=None):
     """
     List all the projects managed with catapult.
 
@@ -71,6 +72,9 @@ def ls(_, contains=None, sort=None, reverse=False):
             f"Invalid sort key in {sort!r}. Valid sort keys: {valid_sort_keys}"
         )
 
+    if only is not None:
+        only = only.split(",")
+
     client = utils.s3_client()
     config = utils.get_config()
     bucket = config["release"]["s3_bucket"]
@@ -85,6 +89,9 @@ def ls(_, contains=None, sort=None, reverse=False):
     now = datetime.now(tz=timezone.utc)
 
     for name in project_names:
+        if only and name not in only:
+            continue
+
         try:
             release = get_release(client, bucket, name)
         except InvalidRelease:
