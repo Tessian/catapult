@@ -1,15 +1,15 @@
 """
 Commands to manage deployments.
 """
-from datetime import datetime
-import dataclasses
-import sys
-
-import invoke
 import logging
+import sys
+from datetime import datetime
 
-from catapult.release import get_releases, get_release, put_release
+import dataclasses
+import invoke
+
 from catapult import utils
+from catapult.release import get_release, get_releases, put_release
 
 LOG = logging.getLogger(__name__)
 

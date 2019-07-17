@@ -4,12 +4,13 @@ Collection of tasks for *catapult*.
 import logging
 import os
 import sys
-import invoke
+
 import boto3
+import invoke
 
 from catapult.deploy import deploy
-from catapult.release import release
 from catapult.projects import projects
+from catapult.release import release
 
 __version__ = "0.1"
 

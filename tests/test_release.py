@@ -1,12 +1,12 @@
-from datetime import datetime
 import json
+from datetime import datetime
 from unittest import mock
 
 import boto3
+import pytz
 from freezegun import freeze_time
 from invoke import MockContext, Result
 from moto import mock_s3
-import pytz
 from testfixtures import compare
 
 from catapult import release
