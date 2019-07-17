@@ -4,7 +4,7 @@ import logging
 import os
 import pathlib
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, List, Mapping
 
@@ -45,10 +45,34 @@ except Exception as exc:
     pass
 
 
+def format_timedelta(td: timedelta):
+
+    units = [
+        ("second", 60),
+        ("minute", 60),
+        ("hour", 24),
+        ("day", 365),  # near enough
+        ("year", None),
+    ]
+
+    value = int(td.total_seconds())
+    unit = units[0][0]
+
+    for unit, multiplier in units:
+        if multiplier is None or abs(value) < multiplier:
+            break
+        value //= multiplier
+
+    return f"{value} {unit}{'s' if value != 1 else ''}"
+
+
 class JsonEncoder(json.JSONEncoder):
     def default(self, o):  # pylint: disable=method-hidden
         if isinstance(o, datetime):
             return o.isoformat()
+
+        if isinstance(o, timedelta):
+            return format_timedelta(o)
 
         elif dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
@@ -111,6 +135,9 @@ def to_human(data):
         table = [[h, data[h]] for h in sorted(data.keys())]
 
         text = tabulate(table, [], tablefmt="simple")
+
+    elif isinstance(data, timedelta):
+        text = format_timedelta(data)
 
     else:
         text = str(data)

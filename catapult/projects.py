@@ -2,7 +2,7 @@
 Commands to inspect projects.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from operator import itemgetter
 from typing import NamedTuple, Optional
@@ -25,8 +25,9 @@ class ProjectType(Enum):
 class Project(NamedTuple):
     name: str
     type: ProjectType
-    env_name: Optional[str]
+    env_name: str
     version: int
+    age: timedelta
     timestamp: datetime
     commit: str
     contains: Optional[bool]
@@ -81,6 +82,8 @@ def ls(_, contains=None, sort=None, reverse=False):
 
     _projects = []
 
+    now = datetime.now(tz=timezone.utc)
+
     for name in project_names:
         try:
             release = get_release(client, bucket, name)
@@ -93,11 +96,12 @@ def ls(_, contains=None, sort=None, reverse=False):
                 version=release.version,
                 commit=release.commit,
                 timestamp=release.timestamp,
+                age=now - release.timestamp,
                 type=ProjectType.release,
                 contains=release_contains(repo, release, contains_oid, name)
                 if contains
                 else None,
-                env_name=None,
+                env_name="",
             )
         )
 
@@ -113,6 +117,7 @@ def ls(_, contains=None, sort=None, reverse=False):
                     version=deploy.version,
                     commit=deploy.commit,
                     timestamp=deploy.timestamp,
+                    age=now - deploy.timestamp,
                     type=ProjectType.deploy,
                     env_name=env_name,
                     contains=release_contains(repo, deploy, contains_oid, name)
@@ -135,16 +140,16 @@ def ls(_, contains=None, sort=None, reverse=False):
     utils.printfmt(project_dicts, tabular=True)
 
 
-def release_contains(repo: git.Repository, release: Release, commit_oid: git.Oid, name: str):
+def release_contains(
+    repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
+):
     release_oid = git.Oid(hex=release.commit)
     try:
         in_release = (
             "Y" if utils.commit_contains(repo, release_oid, commit_oid) else "N"
         )
     except git.GitError as e:
-        LOG.warning(
-            f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]"
-        )
+        LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
         in_release = "?"
 
     return in_release
