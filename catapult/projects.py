@@ -126,6 +126,7 @@ def ls(_, contains=None, sort=None, reverse=False):
         project_dict = project._asdict()
         if not contains:
             project_dict.pop("contains")
+        project_dict["type"] = project_dict["type"].name
         project_dicts.append(project_dict)
 
     if sort_keys:

@@ -50,9 +50,6 @@ class JsonEncoder(json.JSONEncoder):
         if isinstance(o, datetime):
             return o.isoformat()
 
-        elif isinstance(o, enum.Enum):
-            return o.name
-
         elif dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
 
@@ -114,9 +111,6 @@ def to_human(data):
         table = [[h, data[h]] for h in sorted(data.keys())]
 
         text = tabulate(table, [], tablefmt="simple")
-
-    elif isinstance(data, enum.Enum):
-        text = str(data.name)
 
     else:
         text = str(data)
