@@ -1,21 +1,22 @@
-from datetime import datetime
-import dataclasses
 import enum
-from functools import partial
 import json
 import logging
-import pathlib
 import os
+import pathlib
 import sys
+from datetime import datetime, timedelta
+from functools import partial
+from typing import Any, List, Mapping
+
 import boto3
-import pygit2 as git
-from tabulate import tabulate
-import wrapt
-from typing import List
 import colorama
+import dataclasses
+import emoji
+import pygit2 as git
 import termcolor
 import toml
-import emoji
+import wrapt
+from tabulate import tabulate
 
 from catapult import config
 
@@ -44,10 +45,34 @@ except Exception as exc:
     pass
 
 
+def format_timedelta(td: timedelta):
+
+    units = [
+        ("second", 60),
+        ("minute", 60),
+        ("hour", 24),
+        ("day", 365),  # near enough
+        ("year", None),
+    ]
+
+    value = int(td.total_seconds())
+    unit = units[0][0]
+
+    for unit, multiplier in units:
+        if multiplier is None or abs(value) < multiplier:
+            break
+        value //= multiplier
+
+    return f"{value} {unit}{'s' if value != 1 else ''}"
+
+
 class JsonEncoder(json.JSONEncoder):
     def default(self, o):  # pylint: disable=method-hidden
         if isinstance(o, datetime):
             return o.isoformat()
+
+        if isinstance(o, timedelta):
+            return format_timedelta(o)
 
         elif dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
@@ -111,19 +136,32 @@ def to_human(data):
 
         text = tabulate(table, [], tablefmt="simple")
 
+    elif isinstance(data, timedelta):
+        text = format_timedelta(data)
+
     else:
         text = str(data)
 
     return text
 
 
+def to_human_tabular(rows: List[Mapping[str, Any]]):
+    formatted_rows = [
+        {key: "" if value is None else to_human(value) for key, value in row.items()}
+        for row in rows
+    ]
+
+    return tabulate(formatted_rows, headers="keys", tablefmt="grid")
+
+
 FORMATTERS = {
     "human": to_human,
+    "human_tabular": to_human_tabular,
     "json": partial(json.dumps, indent=2, sort_keys=True, cls=JsonEncoder),
 }
 
 
-def printfmt(data):
+def printfmt(data, tabular=False):
     fmt_name = os.environ.get("CATAPULT_FORMAT")
 
     if fmt_name is None:
@@ -132,6 +170,9 @@ def printfmt(data):
 
         else:
             fmt_name = "json"
+
+    if tabular and fmt_name == "human":
+        fmt_name = "human_tabular"
 
     fmt = FORMATTERS.get(fmt_name)
     if fmt is None:
@@ -233,6 +274,17 @@ def get_author(repo):
         return None
 
     return emails[0]
+
+
+def commit_contains(
+    repo: git.Repository, commit: git.Oid, maybe_ancestor: git.Oid
+) -> bool:
+    # Does `commit` contain `maybe_ancestor`?
+
+    if commit == maybe_ancestor:
+        return True
+
+    return repo.descendant_of(commit, maybe_ancestor)
 
 
 class InvalidRange(Exception):

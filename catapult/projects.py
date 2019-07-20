@@ -2,79 +2,164 @@
 Commands to inspect projects.
 """
 import logging
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from operator import itemgetter
+from typing import NamedTuple, Optional
 
-from botocore.exceptions import ClientError
 import invoke
+import pygit2 as git
 
 from catapult import utils
-from catapult.release import _get_release as get_release, InvalidRelease
+from catapult.release import InvalidRelease, Release
+from catapult.release import _get_release as get_release
 
 LOG = logging.getLogger(__name__)
 
 
-@invoke.task(default=True)
+class ProjectType(Enum):
+    release = "release"
+    deploy = "deploy"
+
+
+class Project(NamedTuple):
+    name: str
+    type: ProjectType
+    env_name: str
+    version: int
+    age: timedelta
+    timestamp: datetime
+    commit: str
+    contains: Optional[bool]
+
+
+@invoke.task(
+    default=True,
+    help={
+        "contains": "Full SHA-1 hash of a commit in the current repo",
+        "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
+        "reverse": "reverse-sort the output",
+        "only": "comma-separated list of apps to list",
+    },
+)
 @utils.require_2fa
-def ls(_):
+def ls(_, contains=None, sort=None, reverse=False, only=None):
     """
     List all the projects managed with catapult.
+
+    Optionally pass a full SHA-1 hash of a commit in the current repo,
+    and each release/deploy will be marked with 'Y' if it contains that
+    commit, 'N' if it doesn't, or '?' if it can't be determined (eg
+    perhaps the App belongs to another repo).
     """
+
+    contains_oid = None
+    repo = None
+
+    if contains:
+        contains_oid = git.Oid(hex=contains)
+        repo = utils.git_repo()
+        if contains_oid not in repo:
+            raise Exception(f"Commit {contains_oid} does not exist in repo")
+
+    valid_sort_keys = list(Project._fields)
+    if not contains:
+        valid_sort_keys.remove("contains")
+
+    sort_keys = [] if sort is None else sort.split(",")
+    if any(sort_key not in valid_sort_keys for sort_key in sort_keys):
+        raise Exception(
+            f"Invalid sort key in {sort!r}. Valid sort keys: {valid_sort_keys}"
+        )
+
+    if only is not None:
+        only = only.split(",")
+
     client = utils.s3_client()
-
-    projects = []
-
     config = utils.get_config()
     bucket = config["release"]["s3_bucket"]
     deploys = config["deploy"]
 
     resp = client.list_objects_v2(Bucket=bucket)
-    for data in resp.get("Contents", []):
-        name = data["Key"]
 
-        projects.append(name)
-
-    projects = sorted(projects)
+    project_names = sorted(data["Key"] for data in resp.get("Contents", []))
 
     _projects = []
 
-    for name in projects:
+    now = datetime.now(tz=timezone.utc)
+
+    for name in project_names:
+        if only and name not in only:
+            continue
+
         try:
             release = get_release(client, bucket, name)
         except InvalidRelease:
             continue
 
-        data = {
-            "Name": name,
-            "Latest Release": f"v{release.version} {release.timestamp} ({release.commit})",
-        }
+        _projects.append(
+            Project(
+                name=name,
+                version=release.version,
+                commit=release.commit,
+                timestamp=release.timestamp,
+                age=now - release.timestamp,
+                type=ProjectType.release,
+                contains=release_contains(repo, release, contains_oid, name)
+                if contains
+                else None,
+                env_name="",
+            )
+        )
 
         for env_name, cfg in deploys.items():
-            env_version, env_commit, env_timestamp = get_deployed_version(
-                client, cfg["s3_bucket"], name
+            try:
+                deploy = get_release(client, cfg["s3_bucket"], name)
+            except InvalidRelease:
+                continue
+
+            _projects.append(
+                Project(
+                    name=name,
+                    version=deploy.version,
+                    commit=deploy.commit,
+                    timestamp=deploy.timestamp,
+                    age=now - deploy.timestamp,
+                    type=ProjectType.deploy,
+                    env_name=env_name,
+                    contains=release_contains(repo, deploy, contains_oid, name)
+                    if contains
+                    else None,
+                )
             )
 
-            data[env_name.title()] = f"v{env_version} {env_timestamp} ({env_commit})"
+    project_dicts = []
+    for project in _projects:
+        project_dict = project._asdict()
+        if not contains:
+            project_dict.pop("contains")
+        project_dict["type"] = project_dict["type"].name
+        project_dicts.append(project_dict)
 
-        _projects.append(data)
+    if sort_keys:
+        project_dicts.sort(key=itemgetter(*sort_keys), reverse=reverse)
 
-    projects = _projects
-
-    utils.printfmt(projects)
+    utils.printfmt(project_dicts, tabular=True)
 
 
-def get_deployed_version(client, bucket_name, project_name):
+def release_contains(
+    repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
+):
+    release_oid = git.Oid(hex=release.commit)
     try:
-        deploy = get_release(client, bucket_name, project_name)
+        in_release = (
+            "Y" if utils.commit_contains(repo, release_oid, commit_oid) else "N"
+        )
+    except git.GitError as e:
+        LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
+        in_release = "?"
 
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "AccessDenied":
-            LOG.warning(f"Access denied on {bucket_name} for {project_name}: {str(e)}")
-            return "???", "???", "???"
-        raise
-
-    except InvalidRelease:
-        return "X", "X", "X"
-
-    return deploy.version, deploy.commit, deploy.timestamp
+    return in_release
 
 
 projects = invoke.Collection("projects", ls)

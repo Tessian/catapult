@@ -1,12 +1,12 @@
 """
 Commands to manage releases.
 """
-import dataclasses
-from datetime import datetime
-import logging
 import json
+import logging
 import sys
+from datetime import datetime
 
+import dataclasses
 import invoke
 import pytz
 
@@ -34,7 +34,7 @@ class InvalidRelease(Exception):
     """
 
 
-def _get_release(client, bucket, key, version_id=None):
+def _get_release(client, bucket, key, version_id=None) -> Release:
     """
     Fetches a release from a S3 object.
 
