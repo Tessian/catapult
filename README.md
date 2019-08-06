@@ -14,6 +14,16 @@ Install
 
 Linux:
 
+Requires the development version of `openssl` to be installed.
+- Debian based distros:
+  ```bash
+  apt install libssl-dev
+  ```
+- RedHat based distros:
+  ```bash
+  yum install openssl-devel
+  ```
+
 ```bash
 wget https://github.com/libgit2/libgit2/archive/v0.27.0.tar.gz
 tar xzf v0.27.0.tar.gz
