@@ -11,6 +11,7 @@ import invoke
 import pygit2 as git
 
 from catapult import utils
+from catapult.config import AWS_MFA_DEVICE
 from catapult.release import InvalidRelease, Release
 from catapult.release import _get_release as get_release
 
@@ -31,6 +32,7 @@ class Project(NamedTuple):
     timestamp: datetime
     commit: str
     contains: Optional[bool]
+    permission: Optional[bool]
 
 
 @invoke.task(
@@ -40,10 +42,11 @@ class Project(NamedTuple):
         "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
         "reverse": "reverse-sort the output",
         "only": "comma-separated list of apps to list",
+        "permissions": "check if you have permission to release/deploy",
     },
 )
 @utils.require_2fa
-def ls(_, contains=None, sort=None, reverse=False, only=None):
+def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False):
     """
     List all the projects managed with catapult.
 
@@ -56,6 +59,8 @@ def ls(_, contains=None, sort=None, reverse=False, only=None):
     contains_oid = None
     repo = None
 
+    optional_columns = {"contains": bool(contains), "permission": bool(permissions)}
+
     if contains:
         contains_oid = git.Oid(hex=contains)
         repo = utils.git_repo()
@@ -63,8 +68,10 @@ def ls(_, contains=None, sort=None, reverse=False, only=None):
             raise Exception(f"Commit {contains_oid} does not exist in repo")
 
     valid_sort_keys = list(Project._fields)
-    if not contains:
-        valid_sort_keys.remove("contains")
+
+    for column_name, show_column in optional_columns.items():
+        if not show_column:
+            valid_sort_keys.remove(column_name)
 
     sort_keys = [] if sort is None else sort.split(",")
     if any(sort_key not in valid_sort_keys for sort_key in sort_keys):
@@ -77,12 +84,24 @@ def ls(_, contains=None, sort=None, reverse=False, only=None):
 
     client = utils.s3_client()
     config = utils.get_config()
-    bucket = config["release"]["s3_bucket"]
+    release_bucket = config["release"]["s3_bucket"]
     deploys = config["deploy"]
 
-    resp = client.list_objects_v2(Bucket=bucket)
+    resp = client.list_objects_v2(Bucket=release_bucket)
 
     project_names = sorted(data["Key"] for data in resp.get("Contents", []))
+
+    can_release = {}
+    can_deploy = {}
+
+    if permissions:
+        iam_client = utils.iam_client()
+
+        can_release = check_perms(iam_client, release_bucket, project_names)
+        can_deploy = {
+            env_name: check_perms(iam_client, cfg["s3_bucket"], project_names)
+            for env_name, cfg in deploys.items()
+        }
 
     _projects = []
 
@@ -93,7 +112,7 @@ def ls(_, contains=None, sort=None, reverse=False, only=None):
             continue
 
         try:
-            release = get_release(client, bucket, name)
+            release = get_release(client, release_bucket, name)
         except InvalidRelease:
             continue
 
@@ -109,6 +128,7 @@ def ls(_, contains=None, sort=None, reverse=False, only=None):
                 if contains
                 else None,
                 env_name="",
+                permission=can_release.get(name),
             )
         )
 
@@ -130,15 +150,24 @@ def ls(_, contains=None, sort=None, reverse=False, only=None):
                     contains=release_contains(repo, deploy, contains_oid, name)
                     if contains
                     else None,
+                    permission=can_deploy.get(env_name, {}).get(name),
                 )
             )
 
     project_dicts = []
     for project in _projects:
         project_dict = project._asdict()
-        if not contains:
-            project_dict.pop("contains")
-        project_dict["type"] = project_dict["type"].name
+        for column_name, show_column in optional_columns.items():
+            if not show_column:
+                project_dict.pop(column_name)
+
+        style = (
+            utils.TextStyle.yellow
+            if project_dict["type"] is ProjectType.release
+            else utils.TextStyle.blue
+        )
+        project_dict["name"] = utils.Formatted(project_dict["name"], style)
+        project_dict["type"] = utils.Formatted(project_dict["type"].name, style)
         project_dicts.append(project_dict)
 
     if sort_keys:
@@ -152,14 +181,58 @@ def release_contains(
 ):
     release_oid = git.Oid(hex=release.commit)
     try:
-        in_release = (
-            "Y" if utils.commit_contains(repo, release_oid, commit_oid) else "N"
-        )
+        in_release = utils.commit_contains(repo, release_oid, commit_oid)
     except git.GitError as e:
         LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
         in_release = "?"
 
     return in_release
+
+
+def check_perms(iam_client, bucket_name, project_names):
+
+    region = utils.get_region_name()
+
+    arn_to_project = {
+        f"arn:aws:s3:::{bucket_name}/{project}": project for project in project_names
+    }
+
+    user_arn = AWS_MFA_DEVICE.replace(":mfa/", ":user/")
+
+    perms = iam_client.simulate_principal_policy(
+        PolicySourceArn=user_arn,
+        ActionNames=["s3:PutObject"],
+        ResourceArns=list(arn_to_project.keys()),
+        ContextEntries=[
+            {
+                "ContextKeyName": "aws:multifactorauthpresent",
+                "ContextKeyType": "boolean",
+                "ContextKeyValues": ["true"],
+            },
+            {
+                "ContextKeyName": "aws:requestedregion",
+                "ContextKeyType": "string",
+                "ContextKeyValues": [region],
+            },
+        ],
+    )
+
+    results = {}
+    ev_results = perms["EvaluationResults"]
+
+    for res in ev_results:
+        arn = res["EvalResourceName"]
+        project = arn_to_project[arn]
+
+        if res["EvalDecision"] == "allowed":
+            results[project] = True
+        else:
+            for rsr in res["ResourceSpecificResults"]:
+                if rsr["EvalResourceName"] == arn:
+                    results[project] = rsr["EvalResourceDecision"] == "allowed"
+                    break
+
+    return results
 
 
 projects = invoke.Collection("projects", ls)

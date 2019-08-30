@@ -5,7 +5,7 @@ import os
 import pathlib
 import sys
 from datetime import datetime, timedelta
-from functools import partial
+from functools import partial, singledispatch
 from typing import Any, List, Mapping
 
 import boto3
@@ -74,6 +74,9 @@ class JsonEncoder(json.JSONEncoder):
         if isinstance(o, timedelta):
             return format_timedelta(o)
 
+        elif isinstance(o, Formatted):
+            return str(o)
+
         elif dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
 
@@ -85,10 +88,12 @@ class TextStyle(enum.Enum):
     Defines different styles for catapult messages.
     """
 
-    default = (None, None, [])
-    success = ("green", None, [])
-    warning = ("yellow", None, [])
-    error = ("red", None, ["bold"])
+    plain = (None, None, [])
+    green = ("green", None, [])
+    yellow = ("yellow", None, [])
+    blue = ("blue", None, [])
+    red = ("red", None, [])
+    red_inverse = ("white", "red", ["bold"])
 
     def __init__(self, fg, bg, attrs):
         self.fg = fg
@@ -96,7 +101,16 @@ class TextStyle(enum.Enum):
         self.attrs = list(attrs)
 
 
-def confirm(prompt, style=TextStyle.default):
+@dataclasses.dataclass
+class Formatted:
+    text: Any
+    style: TextStyle
+
+    def __str__(self):
+        return str(self.text)
+
+
+def confirm(prompt, style=TextStyle.plain):
     _print(f"{prompt} [y/N] ", style)
 
     answer = input()
@@ -104,45 +118,59 @@ def confirm(prompt, style=TextStyle.default):
     return answer.lower() == "y"
 
 
-def _print(text, style):
-    termcolor.cprint(
-        emoji.emojize(text, use_aliases=True),
-        style.fg,
-        style.bg,
-        attrs=style.attrs,
-        end="",
+def style_text(text: Any, style: TextStyle) -> str:
+    text = str(text)
+    return termcolor.colored(
+        emoji.emojize(text, use_aliases=True), style.fg, style.bg, attrs=style.attrs
     )
 
 
-success = partial(_print, style=TextStyle.success)
-warning = partial(_print, style=TextStyle.warning)
-error = partial(_print, style=TextStyle.error)
+def _print(text: str, style: TextStyle) -> None:
+    print(style_text(text, style), end="")
 
 
-def to_human(data):
-    if isinstance(data, list):
-        text = "\n".join(to_human(v) for v in data)
+success = partial(_print, style=TextStyle.green)
+warning = partial(_print, style=TextStyle.yellow)
+error = partial(_print, style=TextStyle.red_inverse)
 
-    elif dataclasses.is_dataclass(data):
+
+@singledispatch
+def to_human(data: Any):
+    if dataclasses.is_dataclass(data):
         table = [
             [f.name, getattr(data, f.name)]
             for i, f in enumerate(dataclasses.fields(data))
         ]
+        return tabulate(table, [], tablefmt="simple")
 
-        text = tabulate(table, [], tablefmt="simple")
+    return str(data)
 
-    elif isinstance(data, dict):
-        table = [[h, data[h]] for h in sorted(data.keys())]
 
-        text = tabulate(table, [], tablefmt="simple")
+@to_human.register(list)
+def _(data: list):
+    return "\n".join(to_human(v) for v in data)
 
-    elif isinstance(data, timedelta):
-        text = format_timedelta(data)
 
-    else:
-        text = str(data)
+@to_human.register(dict)
+def _(data: dict):
+    table = [[h, data[h]] for h in sorted(data.keys())]
+    return tabulate(table, [], tablefmt="simple")
 
-    return text
+
+@to_human.register(timedelta)
+def _(data: timedelta):
+    return format_timedelta(data)
+
+
+@to_human.register(bool)
+def _(data: bool):
+    formatted = Formatted(str(data), TextStyle.green if data else TextStyle.red)
+    return to_human(formatted)
+
+
+@to_human.register(Formatted)
+def _(data: Formatted):
+    return style_text(data.text, data.style)
 
 
 def to_human_tabular(rows: List[Mapping[str, Any]]):
@@ -151,7 +179,7 @@ def to_human_tabular(rows: List[Mapping[str, Any]]):
         for row in rows
     ]
 
-    return tabulate(formatted_rows, headers="keys", tablefmt="grid")
+    return tabulate(formatted_rows, headers="keys", tablefmt="fancy_grid")
 
 
 FORMATTERS = {
@@ -185,6 +213,7 @@ def printfmt(data, tabular=False):
 def _aws_session(profile=config.AWS_PROFILE):
     if _SESSION:
         session = boto3.session.Session(
+            profile_name=profile,
             aws_access_key_id=_SESSION["aws_access_key_id"],
             aws_secret_access_key=_SESSION["aws_secret_access_key"],
             aws_session_token=_SESSION["aws_session_token"],
@@ -239,6 +268,19 @@ def iam_client(profile=config.AWS_PROFILE):
     session = _aws_session(profile)
 
     return session.client("iam")
+
+
+def get_region_name(profile=config.AWS_PROFILE):
+    """
+    Returns the region name of the given profile.
+
+    Arguments:
+        profile (str): profile's name.
+
+    Returns:
+        str: region name
+    """
+    return _aws_session(profile).region_name
 
 
 def git_repo():
