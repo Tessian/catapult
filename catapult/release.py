@@ -345,7 +345,7 @@ def new(
         if release.rollback:
             ok = utils.confirm(
                 "Are you sure you want to create a rollback release?",
-                style=utils.TextStyle.warning,
+                style=utils.TextStyle.yellow,
             )
 
             if not ok:
