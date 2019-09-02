@@ -2,7 +2,7 @@ FROM python:3.6-alpine3.7 AS deps
 
 COPY ./ /app
 
-ENV LIBGIT2_VERSION=0.27.2
+ENV LIBGIT2_VERSION=0.28.3
 ENV LIBGIT2_SHA256=ac84343b7826ece64185817782a920069c0e419f78ed5d3e4d661e630e32bc26
 
 RUN apk --update add build-base make cmake libressl-dev gcc libffi-dev && \

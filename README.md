@@ -45,7 +45,7 @@ brew install libgit2
 4. Install **catapult**:
 
 ```bash
-cd ./tools/catapult
+cd ./catapult
 pip3 install -r requirements.txt
 python3 setup.py develop
 ```

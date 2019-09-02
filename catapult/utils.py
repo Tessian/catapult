@@ -126,7 +126,7 @@ def style_text(text: Any, style: TextStyle) -> str:
 
 
 def _print(text: str, style: TextStyle) -> None:
-    print(style_text(text, style), end="")
+    print(style_text(text, style), end="", file=sys.stderr)
 
 
 success = partial(_print, style=TextStyle.green)
@@ -435,6 +435,10 @@ def get_config():
     global CONFIG
 
     if CONFIG is None:
+        repo = git_repo()
+        if not repo:
+            return {}
+
         path = os.path.dirname(git_repo().path.rstrip("/"))
         path = os.path.join(path, ".catapult.toml")
 

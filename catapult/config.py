@@ -3,7 +3,7 @@ import os
 _HOME_PATH = os.path.expanduser("~")
 
 # aws config
-AWS_PROFILE = os.environ.get("CATAPULT_AWS_PROFILE", "default")
+AWS_PROFILE = os.environ.get("CATAPULT_AWS_PROFILE")
 AWS_MFA_DEVICE = os.environ.get("CATAPULT_AWS_MFA_DEVICE")
 
 # git config
