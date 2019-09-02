@@ -3,6 +3,7 @@ Commands to manage releases.
 """
 import json
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -104,6 +105,13 @@ def _get_versions(client, bucket, key):
 _DATETIME_MAX = pytz.utc.localize(datetime.max)
 
 
+def _get_bucket():
+    config = utils.get_config()
+    if config:
+        return config["release"]["s3_bucket"]
+    return os.environ["CATAPULT_BUCKET_RELEASES"]
+
+
 def get_releases(client, key, since=None, bucket=None):
     """
     Gets all the releases in the project's history.
@@ -118,7 +126,7 @@ def get_releases(client, key, since=None, bucket=None):
         Release a release in the project's history.
     """
     if bucket is None:
-        bucket = utils.get_config()["release"]["s3_bucket"]
+        bucket = _get_bucket()
 
     versions = sorted(
         _get_versions(client, bucket, key),
@@ -156,7 +164,7 @@ def get_release(client, key, version=None, bucket=None):
             `None` if the version does not exist.
     """
     if bucket is None:
-        bucket = utils.get_config()["release"]["s3_bucket"]
+        bucket = _get_bucket()
 
     for release in get_releases(client, key, bucket=bucket):
         if release.version == version or version is None:
@@ -356,7 +364,7 @@ def new(
         if not ok:
             sys.exit(1)
 
-    put_release(client, utils.get_config()["release"]["s3_bucket"], name, release)
+    put_release(client, _get_bucket(), name, release)
 
     utils.success("Created new release :tada:\n")
 
