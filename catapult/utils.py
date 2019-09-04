@@ -93,7 +93,7 @@ class TextStyle(enum.Enum):
     yellow = ("yellow", None, [])
     blue = ("blue", None, [])
     red = ("red", None, [])
-    red_inverse = ("white", "red", ["bold"])
+    red_inverse = ("white", "on_red", ["bold"])
 
     def __init__(self, fg, bg, attrs):
         self.fg = fg
