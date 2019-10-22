@@ -56,7 +56,7 @@ Set these environment variables to configure catapult:
 
 * `CATAPULT_GIT_REPO`: path to the git repository (default: `./`).
   **!!! If this is not set, catapult should be run inside the git repository !!!**
-* `CATAPULT_AWS_PROFILE`: use a specific profile from your credential file (default: `default`).
+* `CATAPULT_AWS_PROFILE`: use this profile from your credential file. Required.
 * `CATAPULT_AWS_MFA_DEVICE`: ARN of the MFA device used to get the session credentials.
 
 Description
