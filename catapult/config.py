@@ -1,10 +1,14 @@
 import os
+import sys
 
 _HOME_PATH = os.path.expanduser("~")
 
 # aws config
-AWS_PROFILE = os.environ.get("CATAPULT_AWS_PROFILE")
 AWS_MFA_DEVICE = os.environ.get("CATAPULT_AWS_MFA_DEVICE")
+AWS_PROFILE = os.environ.get("CATAPULT_AWS_PROFILE")
+if not AWS_PROFILE:
+    print("The environment variable CATAPULT_AWS_PROFILE is required.")
+    sys.exit(1)
 
 # git config
 GIT_REPO = os.environ.get("CATAPULT_GIT_REPO", "./")
