@@ -179,6 +179,10 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
 def release_contains(
     repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
 ):
+    if not release.commit:
+        LOG.warning(f"{name} has a null commit ref")
+        return "?"
+
     release_oid = git.Oid(hex=release.commit)
     try:
         in_release = utils.commit_contains(repo, release_oid, commit_oid)
