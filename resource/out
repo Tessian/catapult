@@ -36,6 +36,8 @@ export environment
 # bucket containing the environment deploys
 deploy_bucket=$(jq -r ".source.deploy_bucket" < "$payload")
 export deploy_bucket
+# file containing the image ID to release
+image_id_file=$(jq -r ".params.image_id" < "$payload")
 
 # AWS credentials
 AWS_ACCESS_KEY_ID=$(jq -r '.source.aws_access_key_id // ""' < "$payload")
@@ -60,6 +62,12 @@ if [ -n "$version_file" ]; then
   version_arg=--version=$(cat "$version_file")
 fi
 
+image_id_arg=""
+if [ -z "$image_id_file" ]; then
+  image_id_arg=--iamge-id=$(cat "$image_id_file")
+fi
+
+
 if [ -n "$bucket" ]; then
   export CATAPULT_BUCKET_RELEASES=$bucket
 fi
@@ -76,7 +84,12 @@ if [ "$is_deploy" = "true" ]; then
 
     catapult deploy.start "$name" "$environment" "$version_arg" --bucket="$deploy_bucket" --yes > "$release"
 else
-    catapult release.new "$name" "$version_arg" --yes > "$release"
+    if [ -z "$image_id_file" ]; then
+      echo "parameter 'image_id_file' is required when 'is_deploy' is false"
+      exit 1
+    fi
+
+    catapult release.new "$name" "$version_arg" "$image_id_arg" --yes > "$release"
 fi
 
 version=$(jq -r '.version' < "$release")
