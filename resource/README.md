@@ -63,10 +63,10 @@ Create and upload a new release.
 
 * `repository`: *Required.* Path to the git repository where the project
   to release is tracked.
-
+* `image-id`: *Required.* Path to the file containing the ID of the
+Docker image to be released.
 * `version`: *Optional.* Path to the file containing the version for
    the new release. If the version is not set, it will use the next version.
-
 
 ## Development
 
