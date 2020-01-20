@@ -279,6 +279,7 @@ def ls(_, name, last=None):
         "name": "identifies the project to release.",
         "commit": "git ref to build from.",
         "version": "new version",
+        "image-id": "ID of the docker image to release.",
         "image-name": "name of the image to release (default to name)",
         "dry": "prepare a release without committing it",
         "yes": "Automatic yes to prompt",
@@ -295,6 +296,7 @@ def new(
     dry=False,
     yes=False,
     image_name=None,
+    image_id=None,
     rollback=False,
 ):
     """
@@ -317,10 +319,12 @@ def new(
     else:
         version = int(version)
 
-    image_id = _get_image_id(ctx, commit, name=name, image_name=image_name)
     if image_id is None:
-        LOG.critical("Image ID not found")
-        sys.exit(1)
+        image_id = _get_image_id(ctx, commit, name=name, image_name=image_name)
+
+        if image_id is None:
+            LOG.critical("Image not found")
+            sys.exit(1)
 
     changelog = utils.changelog(repo, commit, latest and latest.commit)
 

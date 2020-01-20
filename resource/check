@@ -32,6 +32,15 @@ export AWS_SECRET_ACCESS_KEY
 AWS_SESSION_TOKEN=$(jq -r '.source.aws_session_token // ""' < "$payload")
 export AWS_SESSION_TOKEN
 
+mkdir -p ~/.aws/
+echo "[default]
+aws_access_key_id=$AWS_ACCESS_KEY_ID
+aws_secret_access_key=$AWS_SECRET_ACCESS_KEY
+aws_session_token=$AWS_SESSION_TOKEN
+" > ~/.aws/credentials
+
+export CATAPULT_AWS_PROFILE="default"
+
 if [ -z "$name" ]; then
   echo "parameter 'name' is required"
   exit 1
