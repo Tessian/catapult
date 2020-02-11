@@ -4,11 +4,12 @@ Commands to manage releases.
 import json
 import logging
 import os
-import sys
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 import dataclasses
 import invoke
+import pygit2 as git
 import pytz
 
 from catapult import utils
@@ -208,14 +209,14 @@ def put_release(client, bucket, key, release):
     )
 
 
-def _get_image_id(ctx, commit, *, name, image_name):
+def _get_image_id(ctx, commit: git.Oid, *, name: str, image_name: Optional[str]):
     image_base = utils.get_config()["release"]["docker_repository"]
 
     if image_name is None:
         image_prefix = utils.get_config()["release"]["docker_image_prefix"]
         image_name = f"{image_prefix}{name}"
 
-    image = f"{image_base}/{image_name}:ref-{commit}"
+    image = f"{image_base}/{image_name}:ref-{commit.hex}"
 
     LOG.info(f"Pulling {image}")
     res = ctx.run(f"docker pull {image}", hide="out")
@@ -240,8 +241,7 @@ def current(_, name):
         utils.printfmt(release)
 
     else:
-        LOG.critical("Release does not exist")
-        sys.exit(1)
+        utils.fatal("Release does not exist")
 
 
 @invoke.task(help={"name": "project's name", "version": "release's version"})
@@ -256,22 +256,51 @@ def get(_, name, version):
         utils.printfmt(release)
 
     else:
-        LOG.critical("Release does not exist")
-        sys.exit(1)
+        utils.fatal("Release does not exist")
 
 
-@invoke.task(help={"name": "project's name", "last": "return only the last n releases"})
+@invoke.task(
+    help={
+        "name": "project's name",
+        "last": "return only the last n releases",
+        "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
+    }
+)
 @utils.require_2fa
-def ls(_, name, last=None):
+def ls(_, name, last=None, contains=None):
     """
     Show all the project's releases.
     """
+    repo = None
+    contains_oid = None
+
+    if contains:
+        repo = utils.git_repo()
+        contains_oid = utils.revparse(repo, contains)
+        if contains_oid not in repo:
+            raise Exception(f"Commit {contains_oid} does not exist in repo")
+
     releases = get_releases(utils.s3_client(), name)
 
-    if last is not None:
-        releases = list(releases)[: int(last)]
+    release_data = []
+    now = datetime.now(tz=timezone.utc)
+    last = int(last) if last else None
+    for i, rel in enumerate(releases):
+        if i == last:
+            break
+        release_dict = {
+            "version": rel.version,
+            "commit": rel.commit,
+            "timestamp": rel.timestamp,
+            "age": now - rel.timestamp,
+            "author": rel.author,
+            "rollback": rel.rollback,
+        }
+        if contains:
+            release_dict["contains"] = release_contains(repo, rel, contains_oid, name)
+        release_data.append(release_dict)
 
-    utils.printfmt(list(releases))
+    utils.printfmt(release_data, tabular=True)
 
 
 @invoke.task(
@@ -306,31 +335,31 @@ def new(
 
     client = utils.s3_client()
     latest = next(get_releases(client, name), None)
+    latest_oid = git.Oid(hex=latest.commit) if latest else None
 
     if commit is None:
-        # get last commit
-        commit = next(utils.git_log(repo), None)
-        commit = commit and commit.hex
+        commit = "HEAD"
+
+    commit_oid = utils.revparse(repo, commit)
 
     if version is None:
-        # crate next version
+        # create next version
         version = 1 if latest is None else latest.version + 1
 
     else:
         version = int(version)
 
     if image_id is None:
-        image_id = _get_image_id(ctx, commit, name=name, image_name=image_name)
+        image_id = _get_image_id(ctx, commit_oid, name=name, image_name=image_name)
 
         if image_id is None:
-            LOG.critical("Image not found")
-            sys.exit(1)
+            utils.fatal("Image not found")
 
-    changelog = utils.changelog(repo, commit, latest and latest.commit)
+    changelog = utils.changelog(repo, commit_oid, latest_oid)
 
     release = Release(
         version=version,
-        commit=commit,
+        commit=commit_oid.hex,
         changelog=changelog.text,
         version_id="",
         image=image_id,
@@ -349,8 +378,7 @@ def new(
 
         if not rollback:
             utils.warning("Missing flag --rollback\n")
-            utils.error("Aborted!\n")
-            sys.exit(1)
+            utils.fatal("Aborted!")
 
     if not yes:
 
@@ -361,12 +389,11 @@ def new(
             )
 
             if not ok:
-                utils.error("Aborted!\n")
-                sys.exit(1)
+                utils.fatal("Aborted!")
 
         ok = utils.confirm("Are you sure you want to create this release?")
         if not ok:
-            sys.exit(1)
+            utils.fatal("Aborted!")
 
     put_release(client, _get_bucket(), name, release)
 
@@ -382,20 +409,26 @@ def new(
 @utils.require_2fa
 def find(_, name, commit=None):
     """
-    Search a release from the commit hash.
+    Find the first release containing a specific commit.
     """
+    if commit is None:
+        commit = "HEAD"
+
     repo = utils.git_repo()
-    commit = commit or next(utils.git_log(repo)).hex
+    oid = utils.revparse(repo, commit)
 
     client = utils.s3_client()
 
     releases = {release.commit: release for release in get_releases(client, name)}
+    print(len(releases))
 
     release = None
     for log in utils.git_log(repo):
-        release = releases.get(log.hex, release)
+        print(oid.hex, release and release.commit, log.hex)
+        if log.hex in releases:
+            release = releases[log.hex]
 
-        if commit == log.hex:
+        if oid.hex == log.hex:
             break
 
     if release:
@@ -440,6 +473,23 @@ def log(_, name, git_range, resolve=False):
         text = utils.changelog(repo, end, start).text
 
     print(text)
+
+
+def release_contains(
+    repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
+):
+    if not release.commit:
+        LOG.warning(f"{name} has a null commit ref")
+        return "?"
+
+    release_oid = git.Oid(hex=release.commit)
+    try:
+        in_release = utils.commit_contains(repo, release_oid, commit_oid)
+    except git.GitError as e:
+        LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
+        in_release = "?"
+
+    return in_release
 
 
 release = invoke.Collection("release", current, ls, new, find, get, log)

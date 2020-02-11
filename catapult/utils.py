@@ -6,7 +6,7 @@ import pathlib
 import sys
 from datetime import datetime, timedelta
 from functools import partial, singledispatch
-from typing import Any, List, Mapping
+from typing import Any, List, Mapping, Optional
 
 import boto3
 import colorama
@@ -109,6 +109,16 @@ class Formatted:
     def __str__(self):
         return str(self.text)
 
+    def __eq__(self, other):
+        if isinstance(other, Formatted):
+            other = other.text
+        return self.text == other
+
+    def __lt__(self, other):
+        if isinstance(other, Formatted):
+            other = other.text
+        return self.text < other
+
 
 def confirm(prompt, style=TextStyle.plain):
     _print(f"{prompt} [y/N] ", style)
@@ -132,6 +142,11 @@ def _print(text: str, style: TextStyle) -> None:
 success = partial(_print, style=TextStyle.green)
 warning = partial(_print, style=TextStyle.yellow)
 error = partial(_print, style=TextStyle.red_inverse)
+
+
+def fatal(message: str, exit_code: int = 1):
+    error(f"FATAL: {message}\n")
+    sys.exit(exit_code)
 
 
 @singledispatch
@@ -204,8 +219,7 @@ def printfmt(data, tabular=False):
 
     fmt = FORMATTERS.get(fmt_name)
     if fmt is None:
-        LOG.critical("invalid formatter: {fmt_name}")
-        sys.exit(1)
+        fatal(f"invalid formatter: {fmt_name}")
 
     sys.stdout.write(fmt(data) + "\n")
 
@@ -333,14 +347,20 @@ class InvalidRange(Exception):
     pass
 
 
-def git_log(repo, *, start=None, end=None):
-    # pylint: disable=no-member
-    start = git.Oid(hex=start) if start else repo.head.target
+def git_log(
+    repo: git.repository.Repository,
+    *,
+    start: Optional[git.Oid] = None,
+    end: Optional[git.Oid] = None,
+):
+
+    if start is None:
+        start = repo.head.target
 
     for commit in repo.walk(start, git.GIT_SORT_TOPOLOGICAL):
         yield commit
 
-        if commit.hex == end:
+        if commit.oid == end:
             break
 
     else:
@@ -371,7 +391,7 @@ class Changelog:
         return "\n".join(text)
 
 
-def changelog(repo, latest, prev):
+def changelog(repo: git.repository.Repository, latest: git.Oid, prev: git.Oid):
     rollback = False
 
     try:
@@ -446,3 +466,17 @@ def get_config():
             CONFIG = toml.load(fp)
 
     return CONFIG
+
+
+def revparse(repo: git.Repository, revision: str) -> git.Oid:
+    try:
+        return repo.revparse_single(revision).oid
+
+    except KeyError as e:
+        fatal(f"Commit not found in {repo.path}: {e}")
+
+    except ValueError as e:
+        fatal(f"Bad revision: {e}")
+
+    except Exception as e:
+        fatal(f"Unexpected error: {type(e).__name__}: {e}")
