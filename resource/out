@@ -106,7 +106,7 @@ else
       exit 1
     fi
 
-    catapult release.new "$name" $version_arg $image_id_arg --yes > "$release"
+    catapult release.new "$name" "$version_arg" "$image_id_arg" --yes > "$release"
 fi
 
 version=$(jq -r '.version' < "$release")
