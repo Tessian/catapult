@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from enum import Enum, auto
 from typing import Optional
 
 import dataclasses
@@ -12,9 +13,14 @@ import invoke
 import pygit2 as git
 import pytz
 
-from catapult import utils
+from catapult import config, utils
 
 LOG = logging.getLogger(__name__)
+
+
+class ActionType(Enum):
+    manual = auto()
+    automated = auto()
 
 
 @dataclasses.dataclass
@@ -28,6 +34,7 @@ class Release:
     author: str
     changelog: str
     rollback: bool = False
+    action_type: ActionType = ActionType.manual
 
 
 class InvalidRelease(Exception):
@@ -73,6 +80,7 @@ def _get_release(client, bucket, key, version_id=None) -> Release:
         image = body["image"]
         author = body["author"]
         rollback = body.get("rollback", False)
+        action_type = ActionType[body.get("action_type", "automated" if author is None else "manual")]
 
     except KeyError as exc:
         raise InvalidRelease(f"Missing property in JSON: {exc}")
@@ -90,6 +98,7 @@ def _get_release(client, bucket, key, version_id=None) -> Release:
         timestamp=resp["LastModified"],
         author=author,
         rollback=rollback,
+        action_type=action_type,
     )
 
 
@@ -198,6 +207,7 @@ def put_release(client, bucket, key, release):
                 "image": release.image,
                 "author": release.author,
                 "rollback": release.rollback,
+                "action_type": release.action_type.name,
             }
         ),
     )
@@ -295,6 +305,7 @@ def ls(_, name, last=None, contains=None):
             "age": now - rel.timestamp,
             "author": rel.author,
             "rollback": rel.rollback,
+            "action_type": rel.action_type.name,
         }
         if contains:
             release_dict["contains"] = release_contains(repo, rel, contains_oid, name)
@@ -357,6 +368,8 @@ def new(
 
     changelog = utils.changelog(repo, commit_oid, latest_oid)
 
+    action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
+
     release = Release(
         version=version,
         commit=commit_oid.hex,
@@ -364,8 +377,9 @@ def new(
         version_id="",
         image=image_id,
         timestamp=datetime.now(),
-        author=utils.get_author(repo),
+        author=utils.get_author(repo, commit_oid),
         rollback=changelog.rollback,
+        action_type=action_type,
     )
 
     utils.printfmt(release)

@@ -321,15 +321,22 @@ def git_repo():
         path = path.parent
 
 
-def get_author(repo):
-    # use git user email as release's author
+def get_author(repo: git.Repository, commit: git.Oid):
+
+    if config.IS_CONCOURSE:
+        return repo.get(commit).author.email
+
+    # use git user email as release's author, or failing that, fall back to this commit's author
+
     emails = list(repo.config.get_multivar("user.email"))
+    if emails:
+        return emails[0]
 
-    if not emails:
-        LOG.critical("Cannot find author email")
-        return None
-
-    return emails[0]
+    LOG.warning(
+        "Unable to determine author from repo config. "
+        "Falling back to author of most recent commit."
+    )
+    return repo.get(commit).author.email
 
 
 def commit_contains(

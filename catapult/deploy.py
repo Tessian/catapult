@@ -6,9 +6,10 @@ from datetime import datetime
 
 import dataclasses
 import invoke
+import pygit2 as git
 
-from catapult import utils
-from catapult.release import get_release, get_releases, put_release
+from catapult import config, utils
+from catapult.release import ActionType, get_release, get_releases, put_release
 
 LOG = logging.getLogger(__name__)
 
@@ -60,12 +61,15 @@ def start(
         changelog_text = changelog.text
         is_rollback = changelog.rollback
 
+    action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
+
     release = dataclasses.replace(
         release,
         changelog=changelog_text,
         timestamp=datetime.now(),
-        author=utils.get_author(repo),
+        author=utils.get_author(repo, git.Oid(hex=release.commit)),
         rollback=is_rollback,
+        action_type=action_type,
     )
 
     utils.printfmt(release)

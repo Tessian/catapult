@@ -30,6 +30,7 @@ class Project(NamedTuple):
     age: timedelta
     timestamp: datetime
     commit: str
+    action_type: str
     contains: Optional[bool]
     permission: Optional[bool]
 
@@ -130,6 +131,7 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
                 ),
                 env_name="",
                 permission=can_release.get(name),
+                action_type=release.action_type.name
             )
         )
 
@@ -154,6 +156,7 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
                         else None
                     ),
                     permission=can_deploy.get(env_name, {}).get(name),
+                    action_type=release.action_type.name
                 )
             )
 

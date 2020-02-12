@@ -6,6 +6,8 @@ set -ex
 exec 3>&1 # make stdout available as fd 3 for the result
 exec 1>&2 # redirect all output to stderr for logging
 
+export IS_CONCOURSE=1
+
 source=$1
 
 if [ -z "$source" ]; then

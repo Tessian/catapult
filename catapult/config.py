@@ -18,3 +18,6 @@ GIT_REPO = os.environ.get("CATAPULT_GIT_REPO", "./")
 CATAPULT_SESSION = os.environ.get(
     "CATAPULT_SESSION", os.path.join(_HOME_PATH, ".catapult")
 )
+
+
+IS_CONCOURSE = bool(os.environ.get("IS_CONCOURSE"))
