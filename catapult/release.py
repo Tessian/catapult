@@ -434,11 +434,9 @@ def find(_, name, commit=None):
     client = utils.s3_client()
 
     releases = {release.commit: release for release in get_releases(client, name)}
-    print(len(releases))
 
     release = None
     for log in utils.git_log(repo):
-        print(oid.hex, release and release.commit, log.hex)
         if log.hex in releases:
             release = releases[log.hex]
 
