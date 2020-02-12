@@ -8,11 +8,10 @@ from operator import itemgetter
 from typing import NamedTuple, Optional
 
 import invoke
-import pygit2 as git
 
 from catapult import utils
 from catapult.config import AWS_MFA_DEVICE
-from catapult.release import InvalidRelease, Release
+from catapult.release import InvalidRelease, release_contains
 from catapult.release import _get_release as get_release
 
 LOG = logging.getLogger(__name__)
@@ -31,6 +30,7 @@ class Project(NamedTuple):
     age: timedelta
     timestamp: datetime
     commit: str
+    action_type: str
     contains: Optional[bool]
     permission: Optional[bool]
 
@@ -38,7 +38,7 @@ class Project(NamedTuple):
 @invoke.task(
     default=True,
     help={
-        "contains": "Full SHA-1 hash of a commit in the current repo",
+        "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
         "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
         "reverse": "reverse-sort the output",
         "only": "comma-separated list of apps to list",
@@ -62,8 +62,8 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
     optional_columns = {"contains": bool(contains), "permission": bool(permissions)}
 
     if contains:
-        contains_oid = git.Oid(hex=contains)
         repo = utils.git_repo()
+        contains_oid = utils.revparse(repo, contains)
         if contains_oid not in repo:
             raise Exception(f"Commit {contains_oid} does not exist in repo")
 
@@ -124,11 +124,14 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
                 timestamp=release.timestamp,
                 age=now - release.timestamp,
                 type=ProjectType.release,
-                contains=release_contains(repo, release, contains_oid, name)
-                if contains
-                else None,
+                contains=(
+                    release_contains(repo, release, contains_oid, name)
+                    if contains
+                    else None
+                ),
                 env_name="",
                 permission=can_release.get(name),
+                action_type=release.action_type.name
             )
         )
 
@@ -147,10 +150,13 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
                     age=now - deploy.timestamp,
                     type=ProjectType.deploy,
                     env_name=env_name,
-                    contains=release_contains(repo, deploy, contains_oid, name)
-                    if contains
-                    else None,
+                    contains=(
+                        release_contains(repo, deploy, contains_oid, name)
+                        if contains
+                        else None
+                    ),
                     permission=can_deploy.get(env_name, {}).get(name),
+                    action_type=release.action_type.name
                 )
             )
 
@@ -174,23 +180,6 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
         project_dicts.sort(key=itemgetter(*sort_keys), reverse=reverse)
 
     utils.printfmt(project_dicts, tabular=True)
-
-
-def release_contains(
-    repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
-):
-    if not release.commit:
-        LOG.warning(f"{name} has a null commit ref")
-        return "?"
-
-    release_oid = git.Oid(hex=release.commit)
-    try:
-        in_release = utils.commit_contains(repo, release_oid, commit_oid)
-    except git.GitError as e:
-        LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
-        in_release = "?"
-
-    return in_release
 
 
 def check_perms(iam_client, bucket_name, project_names):

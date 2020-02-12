@@ -2,14 +2,14 @@
 Commands to manage deployments.
 """
 import logging
-import sys
 from datetime import datetime
 
 import dataclasses
 import invoke
+import pygit2 as git
 
-from catapult import utils
-from catapult.release import get_release, get_releases, put_release
+from catapult import config, utils
+from catapult.release import ActionType, get_release, get_releases, put_release
 
 LOG = logging.getLogger(__name__)
 
@@ -43,8 +43,7 @@ def start(
         release = get_release(client, name, int(version))
 
     if release is None:
-        LOG.critical("Release not found")
-        sys.exit(1)
+        utils.fatal("Release not found")
 
     if bucket is None:
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
@@ -62,12 +61,15 @@ def start(
         changelog_text = changelog.text
         is_rollback = changelog.rollback
 
+    action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
+
     release = dataclasses.replace(
         release,
         changelog=changelog_text,
         timestamp=datetime.now(),
-        author=utils.get_author(repo),
+        author=utils.get_author(repo, git.Oid(hex=release.commit)),
         rollback=is_rollback,
+        action_type=action_type,
     )
 
     utils.printfmt(release)
@@ -80,8 +82,7 @@ def start(
 
         if not rollback:
             utils.warning("Missing flag --rollback\n")
-            utils.error("Aborted!\n")
-            sys.exit(1)
+            utils.fatal("Aborted!")
 
     if not yes:
 
@@ -92,13 +93,11 @@ def start(
             )
 
             if not ok:
-                utils.error("Aborted!\n")
-                sys.exit(1)
+                utils.fatal("Aborted!")
 
         ok = utils.confirm("Are you sure you want to start this deployment?")
         if not ok:
-            utils.error("Aborted!\n")
-            sys.exit(1)
+            utils.fatal("Aborted!")
 
     put_release(client, bucket, name, release)
     utils.success("Started new deployment :rocket:\n")
@@ -127,8 +126,7 @@ def current(_, name, env, bucket=None):
         utils.printfmt(last_deploy)
 
     else:
-        LOG.critical("Release does not exist")
-        sys.exit(1)
+        utils.fatal("Release does not exist")
 
 
 deploy = invoke.Collection("deploy", start, current)
