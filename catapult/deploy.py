@@ -56,7 +56,9 @@ def start(
 
     else:
         # create a changelog from the latest deploy commit
-        changelog = utils.changelog(repo, release.commit, last_deploy.commit)
+        changelog = utils.changelog(
+            repo, git.Oid(hex=release.commit), git.Oid(hex=last_deploy.commit)
+        )
 
         changelog_text = changelog.text
         is_rollback = changelog.rollback

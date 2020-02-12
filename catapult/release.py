@@ -80,7 +80,9 @@ def _get_release(client, bucket, key, version_id=None) -> Release:
         image = body["image"]
         author = body["author"]
         rollback = body.get("rollback", False)
-        action_type = ActionType[body.get("action_type", "automated" if author is None else "manual")]
+        action_type = ActionType[
+            body.get("action_type", "automated" if author is None else "manual")
+        ]
 
     except KeyError as exc:
         raise InvalidRelease(f"Missing property in JSON: {exc}")
@@ -305,7 +307,7 @@ def ls(_, name, last=None, contains=None):
             "age": now - rel.timestamp,
             "author": rel.author,
             "rollback": rel.rollback,
-            "action_type": rel.action_type.name,
+            "action_type": rel.action_type,
         }
         if contains:
             release_dict["contains"] = release_contains(repo, rel, contains_oid, name)
@@ -482,7 +484,7 @@ def log(_, name, git_range, resolve=False):
         text = f"{start}...{end}"
 
     else:
-        text = utils.changelog(repo, end, start).text
+        text = utils.changelog(repo, git.Oid(hex=end), git.Oid(hex=start)).text
 
     print(text)
 

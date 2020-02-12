@@ -77,6 +77,9 @@ class JsonEncoder(json.JSONEncoder):
         elif isinstance(o, Formatted):
             return str(o)
 
+        elif isinstance(o, enum.Enum):
+            return o.name
+
         elif dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
 
@@ -186,6 +189,11 @@ def _(data: bool):
 @to_human.register(Formatted)
 def _(data: Formatted):
     return style_text(data.text, data.style)
+
+
+@to_human.register(enum.Enum)
+def _(data: enum.Enum):
+    return data.name
 
 
 def to_human_tabular(rows: List[Mapping[str, Any]]):

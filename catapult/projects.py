@@ -11,7 +11,7 @@ import invoke
 
 from catapult import utils
 from catapult.config import AWS_MFA_DEVICE
-from catapult.release import InvalidRelease, release_contains
+from catapult.release import ActionType, InvalidRelease, release_contains
 from catapult.release import _get_release as get_release
 
 LOG = logging.getLogger(__name__)
@@ -30,14 +30,16 @@ class Project(NamedTuple):
     age: timedelta
     timestamp: datetime
     commit: str
-    action_type: str
+    action_type: ActionType
     contains: Optional[bool]
     permission: Optional[bool]
+    author: Optional[str]
 
 
 @invoke.task(
     default=True,
     help={
+        "author": "include the author of the release/deploy",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
         "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
         "reverse": "reverse-sort the output",
@@ -46,7 +48,15 @@ class Project(NamedTuple):
     },
 )
 @utils.require_2fa
-def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False):
+def ls(
+    _,
+    author=False,
+    contains=None,
+    sort=None,
+    reverse=False,
+    only=None,
+    permissions=False,
+):
     """
     List all the projects managed with catapult.
 
@@ -59,7 +69,11 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
     contains_oid = None
     repo = None
 
-    optional_columns = {"contains": bool(contains), "permission": bool(permissions)}
+    optional_columns = {
+        "author": bool(author),
+        "contains": bool(contains),
+        "permission": bool(permissions),
+    }
 
     if contains:
         repo = utils.git_repo()
@@ -131,7 +145,8 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
                 ),
                 env_name="",
                 permission=can_release.get(name),
-                action_type=release.action_type.name
+                action_type=release.action_type,
+                author=release.author,
             )
         )
 
@@ -156,7 +171,8 @@ def ls(_, contains=None, sort=None, reverse=False, only=None, permissions=False)
                         else None
                     ),
                     permission=can_deploy.get(env_name, {}).get(name),
-                    action_type=release.action_type.name
+                    action_type=deploy.action_type,
+                    author=deploy.author,
                 )
             )
 
