@@ -283,6 +283,10 @@ def ls(_, name, last=None, contains=None):
     """
     Show all the project's releases.
     """
+    list_releases(name, last, contains)
+
+
+def list_releases(name, last, contains, bucket=None):
     repo = None
     contains_oid = None
 
@@ -292,7 +296,7 @@ def ls(_, name, last=None, contains=None):
         if contains_oid not in repo:
             raise Exception(f"Commit {contains_oid} does not exist in repo")
 
-    releases = get_releases(utils.s3_client(), name)
+    releases = get_releases(utils.s3_client(), name, bucket=bucket)
 
     release_data = []
     now = datetime.now(tz=timezone.utc)

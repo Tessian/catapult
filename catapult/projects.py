@@ -27,6 +27,7 @@ class Project(NamedTuple):
     type: ProjectType
     env_name: str
     version: int
+    behind: int
     age: timedelta
     timestamp: datetime
     commit: str
@@ -134,6 +135,7 @@ def ls(
             Project(
                 name=name,
                 version=release.version,
+                behind=0,
                 commit=release.commit,
                 timestamp=release.timestamp,
                 age=now - release.timestamp,
@@ -160,6 +162,7 @@ def ls(
                 Project(
                     name=name,
                     version=deploy.version,
+                    behind=release.version - deploy.version,
                     commit=deploy.commit,
                     timestamp=deploy.timestamp,
                     age=now - deploy.timestamp,
