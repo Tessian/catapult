@@ -480,6 +480,10 @@ def get_config():
         with open(path, "r") as fp:
             CONFIG = toml.load(fp)
 
+        override_docker_repo = os.environ.get("CATAPULT_CONFIG_DOCKER_REPOSITORY")
+        if override_docker_repo is not None:
+            CONFIG["release"]["docker_repository"] = override_docker_repo
+
     return CONFIG
 
 
