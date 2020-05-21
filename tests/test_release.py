@@ -61,7 +61,7 @@ def test_get_release_from_bucket():
         author="author@example.com",
     )
 
-    r = release._get_release(client, "test", "test-app", None)
+    r = release.fetch_release(client, "test", "test-app", None)
 
     compare(expected, r)
 
@@ -118,7 +118,7 @@ def test_get_latest_release():
         author="author@example.com",
     )
 
-    r = release._get_release(client, "test", "test-app", None)
+    r = release.fetch_release(client, "test", "test-app", None)
 
     compare(expected, r)
 
@@ -175,7 +175,7 @@ def test_get_older_release():
         author="author@example.com",
     )
 
-    r = release._get_release(client, "test", "test-app", old["VersionId"])
+    r = release.fetch_release(client, "test", "test-app", old["VersionId"])
 
     compare(expected, r)
 

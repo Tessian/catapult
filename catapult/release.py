@@ -1,6 +1,7 @@
 """
 Commands to manage releases.
 """
+import dataclasses
 import json
 import logging
 import os
@@ -8,10 +9,10 @@ from datetime import datetime, timezone
 from enum import Enum, auto
 from typing import Optional
 
-import dataclasses
 import invoke
 import pygit2 as git
 import pytz
+from tzlocal import get_localzone
 
 from catapult import config, utils
 
@@ -43,7 +44,7 @@ class InvalidRelease(Exception):
     """
 
 
-def _get_release(client, bucket, key, version_id=None) -> Release:
+def fetch_release(client, bucket, key, version_id=None) -> Release:
     """
     Fetches a release from a S3 object.
 
@@ -148,7 +149,7 @@ def get_releases(client, key, since=None, bucket=None):
 
     for version in versions:
         try:
-            release = _get_release(client, bucket, key, version["VersionId"])
+            release = fetch_release(client, bucket, key, version["VersionId"])
 
         except InvalidRelease as exc:
             # skip invalid releases in object history
@@ -276,17 +277,18 @@ def get(_, name, version):
         "name": "project's name",
         "last": "return only the last n releases",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
+        "utc": "list timestamps in UTC instead of local timezone",
     }
 )
 @utils.require_2fa
-def ls(_, name, last=None, contains=None):
+def ls(_, name, last=None, contains=None, utc=False):
     """
     Show all the project's releases.
     """
-    list_releases(name, last, contains)
+    list_releases(name, last, contains, utc=utc)
 
 
-def list_releases(name, last, contains, bucket=None):
+def list_releases(name, last, contains, bucket=None, utc=False):
     repo = None
     contains_oid = None
 
@@ -300,15 +302,21 @@ def list_releases(name, last, contains, bucket=None):
 
     release_data = []
     now = datetime.now(tz=timezone.utc)
+    localzone = get_localzone()
     last = int(last) if last else None
+
     for i, rel in enumerate(releases):
         if i == last:
             break
+
+        timestamp_utc = rel.timestamp
+        timestamp = timestamp_utc if utc else timestamp_utc.astimezone(localzone)
+
         release_dict = {
             "version": rel.version,
             "commit": rel.commit,
-            "timestamp": rel.timestamp,
-            "age": now - rel.timestamp,
+            "timestamp": timestamp,
+            "age": now - timestamp_utc,
             "author": rel.author,
             "rollback": rel.rollback,
             "action_type": rel.action_type,
@@ -379,7 +387,7 @@ def new(
     release = Release(
         version=version,
         commit=commit_oid.hex,
-        changelog=changelog.text,
+        changelog=changelog.short_text,
         version_id="",
         image=image_id,
         timestamp=datetime.now(),
@@ -458,37 +466,42 @@ def find(_, name, commit=None):
 
 @invoke.task(
     help={
-        "git_range": "identifies the project to release.",
+        "name": "The name of the project whose versions to use",
+        "range": "A range in the format <old>..<new>.",
         "resolve": "transform the version range into a valid git log range",
+        "verbose": "Produce verbose git log output",
     }
 )
 @utils.require_2fa
-def log(_, name, git_range, resolve=False):
+def log(_, name, range, resolve=False, verbose=False):
     """
-    Search a release from the commit hash.
+    Show git log between versions and/or commits.
+
+    This resolves catapult versions (eg `v123`) into git commits, in
+    addition to anything that git can map to a single commit, eg
+    `fc20299e`, `my_branch`, `some_tag`.
     """
     repo = utils.git_repo()
 
     client = utils.s3_client()
 
-    lx, _, rx = git_range.partition("..")
+    lx, _, rx = range.partition("..")
 
     def resolve_range(ref):
         if ref.startswith("v") and ref[1:].isdigit():
             release = get_release(client, name, int(ref[1:]))
-
-            return release.commit
-
-        return ref
+            ref = release.commit
+        return utils.revparse(repo, ref)
 
     start = resolve_range(lx)
     end = resolve_range(rx)
 
     if resolve:
-        text = f"{start}...{end}"
+        text = f"{start.hex}...{end.hex}"
 
     else:
-        text = utils.changelog(repo, git.Oid(hex=end), git.Oid(hex=start)).text
+        changelog = utils.changelog(repo, end, start)
+        text = changelog.text if verbose else changelog.short_text
 
     print(text)
 
@@ -497,14 +510,14 @@ def release_contains(
     repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
 ):
     if not release.commit:
-        LOG.warning(f"{name} has a null commit ref")
+        utils.warning(f"{name} has a null commit ref\n")
         return "?"
 
     release_oid = git.Oid(hex=release.commit)
     try:
         in_release = utils.commit_contains(repo, release_oid, commit_oid)
-    except git.GitError as e:
-        LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
+    except utils.CommitNotFound as e:
+        utils.warning(f"Error: [{repr(e)}], Project: [{name}]\n")
         in_release = "?"
 
     return in_release

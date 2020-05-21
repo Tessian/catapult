@@ -1,3 +1,4 @@
+import dataclasses
 import enum
 import json
 import logging
@@ -10,7 +11,6 @@ from typing import Any, List, Mapping, Optional
 
 import boto3
 import colorama
-import dataclasses
 import emoji
 import pygit2 as git
 import termcolor
@@ -37,11 +37,11 @@ try:
     )
 
     if _SESSION["aws_session_expiration"] < datetime.utcnow():
-        LOG.warning("Stored session has expired")
+        LOG.debug("Stored session has expired")
         _SESSION = None
 
 except Exception as exc:
-    LOG.error("Cannot load catapult session: " + str(exc))
+    LOG.debug("Cannot load catapult session: " + str(exc))
     pass
 
 
@@ -97,6 +97,7 @@ class TextStyle(enum.Enum):
     blue = ("blue", None, [])
     red = ("red", None, [])
     red_inverse = ("white", "on_red", ["bold"])
+    green_inverse = ("white", "on_green", ["bold"])
 
     def __init__(self, fg, bg, attrs):
         self.fg = fg
@@ -139,10 +140,16 @@ def style_text(text: Any, style: TextStyle) -> str:
 
 
 def _print(text: str, style: TextStyle) -> None:
-    print(style_text(text, style), end="", file=sys.stderr)
+    end = ""
+    if text and text[-1] == "\n":
+        # Prevent background colours leaking to the next line
+        text = text[:-1]
+        end = "\n"
+    print(style_text(text, style), end=end, file=sys.stderr)
 
 
 success = partial(_print, style=TextStyle.green)
+alert = partial(_print, style=TextStyle.green_inverse)
 warning = partial(_print, style=TextStyle.yellow)
 error = partial(_print, style=TextStyle.red_inverse)
 
@@ -323,7 +330,7 @@ def git_repo():
 
         if path.parent == path:
             # reached '/'
-            logging.error(f"Cannot find git repository")
+            error("Cannot find git repository\n")
             return None
 
         path = path.parent
@@ -347,10 +354,21 @@ def get_author(repo: git.Repository, commit: git.Oid):
     return repo.get(commit).author.email
 
 
+class CommitNotFound(Exception):
+    def __init__(self, commit_oid):
+        self.commit_oid = commit_oid
+
+
 def commit_contains(
     repo: git.Repository, commit: git.Oid, maybe_ancestor: git.Oid
 ) -> bool:
     # Does `commit` contain `maybe_ancestor`?
+
+    if commit not in repo:
+        raise CommitNotFound(commit)
+
+    if maybe_ancestor not in repo:
+        raise CommitNotFound(maybe_ancestor)
 
     if commit == maybe_ancestor:
         return True
@@ -391,17 +409,32 @@ class Changelog:
 
     @property
     def text(self):
+        return self._to_text(short=False)
+
+    @property
+    def short_text(self):
+        return self._to_text(short=True)
+
+    def _to_text(self, short):
         text = []
 
         for log in self.logs:
             commit_time = datetime.fromtimestamp(log.commit_time)
+            message_lines = log.message.split("\n")
 
-            text.append(f"commit {log.hex}")
-            text.append(f"Author: {log.author.name} <{log.author.email}>")
-            text.append(f"Date:   {commit_time}")
-            text.append("")
-            text.extend("    " + line for line in log.message.split("\n"))
-            text.append("")
+            if short:
+                ref = str(log.short_id)
+                date = commit_time.strftime("%Y-%m-%d")
+                text.append(
+                    f"{ref}  {date}  {log.author.name:20.20s}  {message_lines[0]}"
+                )
+            else:
+                text.append(f"commit {log.hex}")
+                text.append(f"Author: {log.author.name} <{log.author.email}>")
+                text.append(f"Date:   {commit_time}")
+                text.append("")
+                text.extend("    " + line for line in message_lines)
+                text.append("")
 
         return "\n".join(text)
 
@@ -431,7 +464,7 @@ def _refresh_session():
 
     sts = sts_client()
 
-    token_code = input("MFA Token Code: ")
+    token_code = input(f"Enter MFA Token Code for device {config.AWS_MFA_DEVICE}: ")
 
     resp = sts.get_session_token(
         DurationSeconds=36000, SerialNumber=config.AWS_MFA_DEVICE, TokenCode=token_code
@@ -477,8 +510,11 @@ def get_config():
         path = os.path.dirname(git_repo().path.rstrip("/"))
         path = os.path.join(path, ".catapult.toml")
 
-        with open(path, "r") as fp:
-            CONFIG = toml.load(fp)
+        try:
+            with open(path, "r") as fp:
+                CONFIG = toml.load(fp)
+        except FileNotFoundError:
+            fatal(f"Can't find catapult config at {path}")
 
     return CONFIG
 
