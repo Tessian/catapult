@@ -1,10 +1,10 @@
 """
 Commands to manage deployments.
 """
+import dataclasses
 import logging
 from datetime import datetime
 
-import dataclasses
 import invoke
 import pygit2 as git
 
@@ -66,7 +66,7 @@ def start(
             repo, git.Oid(hex=release.commit), git.Oid(hex=last_deploy.commit)
         )
 
-        changelog_text = changelog.text
+        changelog_text = changelog.short_text
         is_rollback = changelog.rollback
 
     action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
@@ -144,17 +144,18 @@ def current(_, name, env, bucket=None):
         "bucket": "name of the bucket used to store the deploys",
         "last": "return only the last n deploys",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
+        "utc": "list timestamps in UTC instead of local timezone",
     }
 )
 @utils.require_2fa
-def ls(_, name, env, bucket=None, last=None, contains=None):
+def ls(_, name, env, bucket=None, last=None, contains=None, utc=False):
     """
     Show all the project's deploys.
     """
     if bucket is None:
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
 
-    list_releases(name, last, contains, bucket)
+    list_releases(name, last, contains, bucket, utc=utc)
 
 
 deploy = invoke.Collection("deploy", start, current, ls)

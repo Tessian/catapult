@@ -5,14 +5,14 @@ import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from operator import itemgetter
-from typing import NamedTuple, Optional
+from typing import List, NamedTuple, Optional
 
 import invoke
+from tzlocal import get_localzone
 
 from catapult import utils
 from catapult.config import AWS_MFA_DEVICE
-from catapult.release import ActionType, InvalidRelease, release_contains
-from catapult.release import _get_release as get_release
+from catapult.release import ActionType, InvalidRelease, fetch_release, release_contains
 
 LOG = logging.getLogger(__name__)
 
@@ -46,6 +46,9 @@ class Project(NamedTuple):
         "reverse": "reverse-sort the output",
         "only": "comma-separated list of apps to list",
         "permissions": "check if you have permission to release/deploy",
+        "utc": "list timestamps in UTC instead of local timezone",
+        "env": "show only deploys and for the specified environments (comma separated list)",
+        "releases-only": "show only releases, no deploys",
     },
 )
 @utils.require_2fa
@@ -57,6 +60,9 @@ def ls(
     reverse=False,
     only=None,
     permissions=False,
+    utc=False,
+    env=None,
+    releases_only=False,
 ):
     """
     List all the projects managed with catapult.
@@ -67,20 +73,18 @@ def ls(
     perhaps the App belongs to another repo).
     """
 
-    contains_oid = None
-    repo = None
+    projects_ = list_projects(contains, only, permissions, utc, env, releases_only)
+    format_projects(projects_, author, contains, sort, reverse, permissions)
 
+
+def format_projects(
+    _projects: List[Project], author, contains, sort, reverse, permissions
+):
     optional_columns = {
         "author": bool(author),
         "contains": bool(contains),
         "permission": bool(permissions),
     }
-
-    if contains:
-        repo = utils.git_repo()
-        contains_oid = utils.revparse(repo, contains)
-        if contains_oid not in repo:
-            raise Exception(f"Commit {contains_oid} does not exist in repo")
 
     valid_sort_keys = list(Project._fields)
 
@@ -93,9 +97,46 @@ def ls(
         raise Exception(
             f"Invalid sort key in {sort!r}. Valid sort keys: {valid_sort_keys}"
         )
+    project_dicts = []
+    for project in _projects:
+        project_dict = project._asdict()
+        for column_name, show_column in optional_columns.items():
+            if not show_column:
+                project_dict.pop(column_name)
+
+        style = (
+            utils.TextStyle.yellow
+            if project_dict["type"] is ProjectType.release
+            else utils.TextStyle.blue
+        )
+        project_dict["name"] = utils.Formatted(project_dict["name"], style)
+        project_dict["type"] = utils.Formatted(project_dict["type"].name, style)
+        project_dicts.append(project_dict)
+
+    if sort_keys:
+        project_dicts.sort(key=itemgetter(*sort_keys), reverse=reverse)
+
+    utils.printfmt(project_dicts, tabular=True)
+
+
+def list_projects(
+    contains, only, permissions, utc, env, releases_only
+) -> List[Project]:
+
+    contains_oid = None
+    repo = None
+
+    if contains:
+        repo = utils.git_repo()
+        contains_oid = utils.revparse(repo, contains)
+        if contains_oid not in repo:
+            raise Exception(f"Commit {contains_oid} does not exist in repo")
 
     if only is not None:
-        only = only.split(",")
+        only = set(only.split(","))
+
+    if env is not None:
+        env = set(env.split(","))
 
     client = utils.s3_client()
     config = utils.get_config()
@@ -121,84 +162,77 @@ def ls(
     _projects = []
 
     now = datetime.now(tz=timezone.utc)
+    localzone = get_localzone()
 
     for name in project_names:
         if only and name not in only:
             continue
 
         try:
-            release = get_release(client, release_bucket, name)
+            release = fetch_release(client, release_bucket, name)
         except InvalidRelease:
             continue
 
-        _projects.append(
-            Project(
-                name=name,
-                version=release.version,
-                behind=0,
-                commit=release.commit,
-                timestamp=release.timestamp,
-                age=now - release.timestamp,
-                type=ProjectType.release,
-                contains=(
-                    release_contains(repo, release, contains_oid, name)
-                    if contains
-                    else None
-                ),
-                env_name="",
-                permission=can_release.get(name),
-                action_type=release.action_type,
-                author=release.author,
-            )
-        )
+        timestamp_utc = release.timestamp
+        timestamp = timestamp_utc if utc else timestamp_utc.astimezone(localzone)
 
-        for env_name, cfg in deploys.items():
-            try:
-                deploy = get_release(client, cfg["s3_bucket"], name)
-            except InvalidRelease:
-                continue
-
+        if releases_only or env is None:
             _projects.append(
                 Project(
                     name=name,
-                    version=deploy.version,
-                    behind=release.version - deploy.version,
-                    commit=deploy.commit,
-                    timestamp=deploy.timestamp,
-                    age=now - deploy.timestamp,
-                    type=ProjectType.deploy,
-                    env_name=env_name,
+                    version=release.version,
+                    behind=0,
+                    commit=release.commit,
+                    timestamp=timestamp,
+                    age=now - timestamp_utc,
+                    type=ProjectType.release,
                     contains=(
-                        release_contains(repo, deploy, contains_oid, name)
+                        release_contains(repo, release, contains_oid, name)
                         if contains
                         else None
                     ),
-                    permission=can_deploy.get(env_name, {}).get(name),
-                    action_type=deploy.action_type,
-                    author=deploy.author,
+                    env_name="",
+                    permission=can_release.get(name),
+                    action_type=release.action_type,
+                    author=release.author,
                 )
             )
 
-    project_dicts = []
-    for project in _projects:
-        project_dict = project._asdict()
-        for column_name, show_column in optional_columns.items():
-            if not show_column:
-                project_dict.pop(column_name)
+        if releases_only:
+            continue
 
-        style = (
-            utils.TextStyle.yellow
-            if project_dict["type"] is ProjectType.release
-            else utils.TextStyle.blue
-        )
-        project_dict["name"] = utils.Formatted(project_dict["name"], style)
-        project_dict["type"] = utils.Formatted(project_dict["type"].name, style)
-        project_dicts.append(project_dict)
+        for env_name, cfg in deploys.items():
+            try:
+                deploy = fetch_release(client, cfg["s3_bucket"], name)
+            except InvalidRelease:
+                continue
 
-    if sort_keys:
-        project_dicts.sort(key=itemgetter(*sort_keys), reverse=reverse)
+            timestamp_utc = deploy.timestamp
+            timestamp = timestamp_utc if utc else timestamp_utc.astimezone(localzone)
 
-    utils.printfmt(project_dicts, tabular=True)
+            if not env or env_name in env:
+                _projects.append(
+                    Project(
+                        name=name,
+                        version=deploy.version,
+                        behind=release.version - deploy.version,
+                        commit=deploy.commit,
+                        timestamp=timestamp,
+                        age=now - timestamp_utc,
+                        type=ProjectType.deploy,
+                        env_name=env_name,
+                        contains=(
+                            release_contains(repo, deploy, contains_oid, name)
+                            if contains
+                            else None
+                        ),
+                        permission=can_deploy.get(env_name, {}).get(name),
+                        action_type=deploy.action_type,
+                        author=deploy.author,
+                    )
+                )
+
+    return _projects
 
 
 def check_perms(iam_client, bucket_name, project_names):
