@@ -1,6 +1,6 @@
 """
 Requires an API token.
-https://app.clubhouse.io/plutoflume/settings/account/api-tokens
+https://app.clubhouse.io/settings/account/api-tokens
 
 This should be set as the env var `CH_TOKEN`.
 """
