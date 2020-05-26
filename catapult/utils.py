@@ -390,6 +390,11 @@ def git_log(
     if start is None:
         start = repo.head.target
 
+    if start not in repo:
+        fatal(
+            f"Can't find commit {start.hex}. Are you in the right repo, or do you need to pull?"
+        )
+
     for commit in repo.walk(start, git.GIT_SORT_TOPOLOGICAL):
         yield commit
 

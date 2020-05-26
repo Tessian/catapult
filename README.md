@@ -59,6 +59,12 @@ Set these environment variables to configure catapult:
 * `CATAPULT_AWS_PROFILE`: use this profile from your credential file. Required.
 * `CATAPULT_AWS_MFA_DEVICE`: ARN of the MFA device used to get the session credentials.
 
+Additional environment variables used for integration with GitHub and Clubhouse:
+
+* `GH_TOKEN`: A GitHub personal access token with `repo` scope. Generate one at https://github.com/settings/tokens
+* `CH_TOKEN`: A Clubhouse API token. Generate one at https://app.clubhouse.io/settings/account/api-tokens
+
+
 Description
 -----------
 
