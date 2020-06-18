@@ -4,13 +4,7 @@ COPY ./ /app
 
 ENV LIBGIT2_VERSION=1.0.1
 
-RUN apk --update add build-base make cmake libressl-dev gcc libffi-dev bash && \
-        wget https://github.com/libgit2/libgit2/archive/v${LIBGIT2_VERSION}.tar.gz && \
-        tar xzf v${LIBGIT2_VERSION}.tar.gz && \
-        cd libgit2-${LIBGIT2_VERSION}/ && \
-        mkdir build && cd build && \
-        cmake .. && \
-        cmake --build . --target install && \
+RUN apk --update add build-base gcc libffi-dev bash libgit2-dev && \
         cd /app && \
         pip install --no-cache-dir -r requirements.txt && \
         python setup.py install && \
