@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from enum import Enum, auto
-from typing import Optional
+from typing import List, Optional
 
 import invoke
 import pygit2 as git
@@ -36,6 +36,8 @@ class Release:
     changelog: str
     rollback: bool = False
     action_type: ActionType = ActionType.manual
+
+    commits: Optional[List[str]] = None
 
 
 class InvalidRelease(Exception):
@@ -84,6 +86,7 @@ def fetch_release(client, bucket, key, version_id=None) -> Release:
         action_type = ActionType[
             body.get("action_type", "automated" if author is None else "manual")
         ]
+        commits = body.get("commits")
 
     except KeyError as exc:
         raise InvalidRelease(f"Missing property in JSON: {exc}")
@@ -102,6 +105,7 @@ def fetch_release(client, bucket, key, version_id=None) -> Release:
         author=author,
         rollback=rollback,
         action_type=action_type,
+        commits=commits,
     )
 
 
@@ -211,6 +215,9 @@ def put_release(client, bucket, key, release):
                 "author": release.author,
                 "rollback": release.rollback,
                 "action_type": release.action_type.name,
+                "commits": [str(commit) for commit in release.commits]
+                if release.commits
+                else None,
             }
         ),
     )
@@ -338,6 +345,7 @@ def list_releases(name, last, contains, bucket=None, utc=False):
         "dry": "prepare a release without committing it",
         "yes": "Automatic yes to prompt",
         "rollback": "needed to start a rollback",
+        "filter_files_path": "keep only the commit that touched the files listed in this file.",
     },
     default=True,
 )
@@ -352,6 +360,7 @@ def new(
     image_name=None,
     image_id=None,
     rollback=False,
+    filter_files_path=None,
 ):
     """
     Create a new release.
@@ -380,7 +389,14 @@ def new(
         if image_id is None:
             utils.fatal("Image not found")
 
-    changelog = utils.changelog(repo, commit_oid, latest_oid)
+    keep_only_files = None
+    if filter_files_path:
+        with open(filter_files_path) as fp:
+            keep_only_files = [line.strip() for line in fp]
+
+    changelog = utils.changelog(
+        repo, commit_oid, latest_oid, keep_only_files=keep_only_files
+    )
 
     action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
 
@@ -394,6 +410,7 @@ def new(
         author=utils.get_author(repo, commit_oid),
         rollback=changelog.rollback,
         action_type=action_type,
+        commits=[commit.hex for commit in changelog.logs],
     )
 
     utils.printfmt(release)
