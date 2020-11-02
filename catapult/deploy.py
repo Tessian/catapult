@@ -60,6 +60,9 @@ def start(
         get_releases(client, name, since=last_deploy.version if last_deploy else 0)
     )
 
+    # the field commits is not present in all docuemnts as it was introduced
+    # in a later version. if any of the releases doesn't track them, we'll
+    # skip the commit filtering to avoid not showing commits in the changelog.
     if any(rel.commits is None for rel in releases):
         commits = None
 
