@@ -113,10 +113,18 @@ def fetch_release(client, bucket, key, version_id=None) -> Release:
 
 @functools.lru_cache(maxsize=None)
 def _get_versions(client, bucket, key):
-    resp = client.list_object_versions(Bucket=bucket, Prefix=key)
+    """
+    Returns all the version IDs for a key ordered by last modified timestamp.
+    """
+    resp_iterator = client.get_paginator("list_object_versions").paginate(
+        Bucket=bucket, Prefix=key
+    )
+    versions = [version for page in resp_iterator for version in page["Versions"]]
+
+    obj_versions = sorted(versions, key=lambda v: v["LastModified"])
     versions = []
 
-    for version in resp.get("Versions", []):
+    for version in obj_versions:
         if version["Key"] != key:
             continue
 
@@ -167,7 +175,7 @@ def get_releases(client, key, since=None, bucket=None):
             continue
 
         if since and release.version < since:
-            continue
+            break
 
         yield release
 
