@@ -2,6 +2,7 @@
 Commands to manage releases.
 """
 import dataclasses
+import functools
 import json
 import logging
 import os
@@ -46,6 +47,7 @@ class InvalidRelease(Exception):
     """
 
 
+@functools.lru_cache(maxsize=None)
 def fetch_release(client, bucket, key, version_id=None) -> Release:
     """
     Fetches a release from a S3 object.
@@ -109,14 +111,18 @@ def fetch_release(client, bucket, key, version_id=None) -> Release:
     )
 
 
+@functools.lru_cache(maxsize=None)
 def _get_versions(client, bucket, key):
     resp = client.list_object_versions(Bucket=bucket, Prefix=key)
+    versions = []
 
     for version in resp.get("Versions", []):
         if version["Key"] != key:
             continue
 
-        yield version
+        versions.append(version)
+
+    return tuple(versions)
 
 
 _DATETIME_MAX = pytz.utc.localize(datetime.max)
