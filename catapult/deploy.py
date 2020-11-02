@@ -59,7 +59,12 @@ def start(
     releases = list(
         get_releases(client, name, since=last_deploy.version if last_deploy else 0)
     )
-    commits = [commit for rel in releases if rel.commits for commit in rel.commits]
+
+    if any(rel.commits is None for rel in releases):
+        commits = None
+
+    else:
+        commits = [commit for rel in releases if rel.commits for commit in rel.commits]
 
     if last_deploy is None:
         # first deploy is always None
