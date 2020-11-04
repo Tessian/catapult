@@ -359,7 +359,7 @@ def list_releases(name, last, contains, bucket=None, utc=False):
         "dry": "prepare a release without committing it",
         "yes": "Automatic yes to prompt",
         "rollback": "needed to start a rollback",
-        "filter_files_path": "keep only the commit that touched the files listed in this file.",
+        "filter-files-path": "keep only the commits that touched the files listed in this file.",
     },
     default=True,
 )
