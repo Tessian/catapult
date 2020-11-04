@@ -2,12 +2,13 @@
 Commands to manage releases.
 """
 import dataclasses
+import functools
 import json
 import logging
 import os
 from datetime import datetime, timezone
 from enum import Enum, auto
-from typing import Optional
+from typing import List, Optional
 
 import invoke
 import pygit2 as git
@@ -37,6 +38,8 @@ class Release:
     rollback: bool = False
     action_type: ActionType = ActionType.manual
 
+    commits: Optional[List[str]] = None
+
 
 class InvalidRelease(Exception):
     """
@@ -44,6 +47,7 @@ class InvalidRelease(Exception):
     """
 
 
+@functools.lru_cache(maxsize=None)
 def fetch_release(client, bucket, key, version_id=None) -> Release:
     """
     Fetches a release from a S3 object.
@@ -84,6 +88,7 @@ def fetch_release(client, bucket, key, version_id=None) -> Release:
         action_type = ActionType[
             body.get("action_type", "automated" if author is None else "manual")
         ]
+        commits = body.get("commits")
 
     except KeyError as exc:
         raise InvalidRelease(f"Missing property in JSON: {exc}")
@@ -102,17 +107,30 @@ def fetch_release(client, bucket, key, version_id=None) -> Release:
         author=author,
         rollback=rollback,
         action_type=action_type,
+        commits=commits,
     )
 
 
+@functools.lru_cache(maxsize=None)
 def _get_versions(client, bucket, key):
-    resp = client.list_object_versions(Bucket=bucket, Prefix=key)
+    """
+    Returns all the version IDs for a key ordered by last modified timestamp.
+    """
+    resp_iterator = client.get_paginator("list_object_versions").paginate(
+        Bucket=bucket, Prefix=key
+    )
+    versions = [version for page in resp_iterator for version in page["Versions"]]
 
-    for version in resp.get("Versions", []):
+    obj_versions = sorted(versions, key=lambda v: v["LastModified"])
+    versions = []
+
+    for version in obj_versions:
         if version["Key"] != key:
             continue
 
-        yield version
+        versions.append(version)
+
+    return tuple(versions)
 
 
 _DATETIME_MAX = pytz.utc.localize(datetime.max)
@@ -157,7 +175,7 @@ def get_releases(client, key, since=None, bucket=None):
             continue
 
         if since and release.version < since:
-            continue
+            break
 
         yield release
 
@@ -211,6 +229,9 @@ def put_release(client, bucket, key, release):
                 "author": release.author,
                 "rollback": release.rollback,
                 "action_type": release.action_type.name,
+                "commits": [str(commit) for commit in release.commits]
+                if release.commits
+                else None,
             }
         ),
     )
@@ -338,6 +359,7 @@ def list_releases(name, last, contains, bucket=None, utc=False):
         "dry": "prepare a release without committing it",
         "yes": "Automatic yes to prompt",
         "rollback": "needed to start a rollback",
+        "filter-files-path": "keep only the commits that touched the files listed in this file.",
     },
     default=True,
 )
@@ -352,6 +374,7 @@ def new(
     image_name=None,
     image_id=None,
     rollback=False,
+    filter_files_path=None,
 ):
     """
     Create a new release.
@@ -380,7 +403,14 @@ def new(
         if image_id is None:
             utils.fatal("Image not found")
 
-    changelog = utils.changelog(repo, commit_oid, latest_oid)
+    keep_only_files = None
+    if filter_files_path:
+        with open(filter_files_path) as fp:
+            keep_only_files = [line.strip() for line in fp]
+
+    changelog = utils.changelog(
+        repo, commit_oid, latest_oid, keep_only_files=keep_only_files
+    )
 
     action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
 
@@ -394,6 +424,7 @@ def new(
         author=utils.get_author(repo, commit_oid),
         rollback=changelog.rollback,
         action_type=action_type,
+        commits=[commit.hex for commit in changelog.logs],
     )
 
     utils.printfmt(release)

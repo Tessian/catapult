@@ -163,8 +163,7 @@ def fatal(message: str, exit_code: int = 1):
 def to_human(data: Any):
     if dataclasses.is_dataclass(data):
         table = [
-            [f.name, getattr(data, f.name)]
-            for i, f in enumerate(dataclasses.fields(data))
+            [f.name, to_human(getattr(data, f.name))] for f in dataclasses.fields(data)
         ]
         return tabulate(table, [], tablefmt="simple")
 
@@ -173,7 +172,15 @@ def to_human(data: Any):
 
 @to_human.register(list)
 def _(data: list):
-    return "\n".join(to_human(v) for v in data)
+    text = ", ".join(to_human(v) for v in data)
+    length = len(data)
+
+    max_len = 100
+    if len(text) > max_len:
+        trunc = f"... ({length})"
+        return text[: max_len - len(trunc)] + trunc
+
+    return text
 
 
 @to_human.register(dict)
@@ -444,7 +451,14 @@ class Changelog:
         return "\n".join(text)
 
 
-def changelog(repo: git.repository.Repository, latest: git.Oid, prev: git.Oid):
+def changelog(
+    repo: git.repository.Repository,
+    latest: git.Oid,
+    prev: git.Oid,
+    *,
+    keep_only_files: Optional[List[str]] = None,
+    keep_only_commits: Optional[List[str]] = None,
+):
     rollback = False
 
     try:
@@ -454,6 +468,23 @@ def changelog(repo: git.repository.Repository, latest: git.Oid, prev: git.Oid):
         logs = reversed(list(git_log(repo=repo, start=prev, end=latest)))
 
         rollback = True
+
+    if keep_only_files is not None:
+        keep_only_files = set(keep_only_files)
+        filtered_logs = []
+        for commit in logs:
+            diff = repo.diff(commit.parents[0], commit)
+            all_files = {delta.new_file.path for delta in diff.deltas} | {
+                delta.old_file.path for delta in diff.deltas
+            }
+
+            if keep_only_files & all_files:
+                filtered_logs.append(commit)
+
+        logs = filtered_logs
+
+    if keep_only_commits:
+        logs = [commit for commit in logs if commit.oid.hex in keep_only_commits]
 
     return Changelog(logs=logs, rollback=rollback)
 

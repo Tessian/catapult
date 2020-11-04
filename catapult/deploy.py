@@ -55,15 +55,36 @@ def start(
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
 
     last_deploy = next(get_releases(client, name, bucket=bucket), None)
+
+    releases = list(
+        get_releases(client, name, since=last_deploy.version if last_deploy else 0)
+    )
+
+    # the field `commits` is not present in all documents as it was introduced
+    # in a later version. if any of the releases doesn't track them, we'll
+    # skip the commit filtering to avoid not showing commits in the changelog.
+    if any(rel.commits is None for rel in releases):
+        commits = None
+
+    else:
+        commits = [commit for rel in releases if rel.commits for commit in rel.commits]
+
     if last_deploy is None:
         # first deploy is always None
-        changelog_text = release.changelog
+        changelog = utils.changelog(
+            repo, release.commit, None, keep_only_commits=commits
+        )
+
+        changelog_text = changelog.short_text
         is_rollback = release.rollback
 
     else:
         # create a changelog from the latest deploy commit
         changelog = utils.changelog(
-            repo, git.Oid(hex=release.commit), git.Oid(hex=last_deploy.commit)
+            repo,
+            git.Oid(hex=release.commit),
+            git.Oid(hex=last_deploy.commit),
+            keep_only_commits=commits,
         )
 
         changelog_text = changelog.short_text
@@ -78,6 +99,7 @@ def start(
         author=utils.get_author(repo, git.Oid(hex=release.commit)),
         rollback=is_rollback,
         action_type=action_type,
+        commits=commits,
     )
 
     utils.printfmt(release)
