@@ -163,8 +163,7 @@ def fatal(message: str, exit_code: int = 1):
 def to_human(data: Any):
     if dataclasses.is_dataclass(data):
         table = [
-            [f.name, to_human(getattr(data, f.name))]
-            for i, f in enumerate(dataclasses.fields(data))
+            [f.name, to_human(getattr(data, f.name))] for f in dataclasses.fields(data)
         ]
         return tabulate(table, [], tablefmt="simple")
 
@@ -175,8 +174,11 @@ def to_human(data: Any):
 def _(data: list):
     text = ", ".join(to_human(v) for v in data)
     length = len(data)
-    if len(text) > 100:
-        return text[:97] + f"... ({length})"
+
+    max_len = 100
+    if len(text) > max_len:
+        trunc = f"... ({length})"
+        return text[: max_len - len(trunc)] + trunc
 
     return text
 
