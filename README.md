@@ -57,7 +57,7 @@ Set these environment variables to configure catapult:
 * `CATAPULT_GIT_REPO`: path to the git repository (default: `./`).
   **!!! If this is not set, catapult should be run inside the git repository !!!**
 * `CATAPULT_AWS_PROFILE`: use this profile from your credential file. Required.
-* `CATAPULT_AWS_MFA_DEVICE`: ARN of the MFA device used to get the session credentials.
+* `CATAPULT_AWS_MFA_DEVICE`: ARN of the MFA device used to get the session credentials. You can find this on the "Security Credentials" tab of [your user account in IAM](https://console.aws.amazon.com/iam/home).
 
 Additional environment variables used for integration with GitHub and Clubhouse:
 
