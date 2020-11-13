@@ -119,7 +119,11 @@ def _get_versions(client, bucket, key):
     resp_iterator = client.get_paginator("list_object_versions").paginate(
         Bucket=bucket, Prefix=key
     )
-    versions = [version for page in resp_iterator for version in page["Versions"]]
+    try:
+        versions = [version for page in resp_iterator for version in page["Versions"]]
+    except KeyError:
+        utils.warning("No versions found\n")
+        return ()
 
     obj_versions = sorted(versions, key=lambda v: v["LastModified"])
     versions = []
