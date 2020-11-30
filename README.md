@@ -25,9 +25,9 @@ Requires the development version of `openssl` to be installed.
   ```
 
 ```bash
-wget https://github.com/libgit2/libgit2/archive/v0.27.0.tar.gz
-tar xzf v0.27.0.tar.gz
-cd libgit2-0.27.0/
+wget https://github.com/libgit2/libgit2/archive/v1.0.1.tar.gz
+tar xzf v1.0.1.tar.gz
+cd libgit2-1.0.1/
 cmake .
 make
 sudo make install
