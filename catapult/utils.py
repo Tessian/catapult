@@ -540,15 +540,19 @@ def get_config():
 
     if CONFIG is None:
         repo = git_repo()
-        if not repo:
-            return {}
+        if repo:
+            path = os.path.dirname(repo.path.rstrip("/"))
+            path = os.path.join(path, ".catapult.toml")
+        else:
+            if not os.path.exists(".catapult.toml"):
+                return {}
 
-        path = os.path.dirname(git_repo().path.rstrip("/"))
-        path = os.path.join(path, ".catapult.toml")
+            path = ".catapult.toml"
 
         try:
             with open(path, "r") as fp:
                 CONFIG = toml.load(fp)
+
         except FileNotFoundError:
             fatal(f"Can't find catapult config at {path}")
 
