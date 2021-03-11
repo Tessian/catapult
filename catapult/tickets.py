@@ -23,6 +23,7 @@ from catapult.projects import format_projects, list_projects
         "utc": "list timestamps in UTC instead of local timezone",
         "env": "show only deploys and for the specified environments (comma separated list)",
         "releases-only": "show only releases, no deploys",
+        "profile": "name of AWS profile to use",
     },
 )
 @utils.require_2fa
@@ -37,6 +38,7 @@ def find(
     utc=False,
     env=None,
     releases_only=False,
+    profile=None,
 ):
     """
     What latest releases/deploys contain commits belonging to this ticket?
@@ -63,6 +65,7 @@ def find(
             utc=utc,
             env=env,
             releases_only=releases_only,
+            profile=profile,
         )
         format_projects(
             projects,

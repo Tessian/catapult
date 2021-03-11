@@ -49,6 +49,7 @@ class Project(NamedTuple):
         "utc": "list timestamps in UTC instead of local timezone",
         "env": "show only deploys and for the specified environments (comma separated list)",
         "releases-only": "show only releases, no deploys",
+        "profile": "name of AWS profile to use",
     },
 )
 @utils.require_2fa
@@ -63,6 +64,7 @@ def ls(
     utc=False,
     env=None,
     releases_only=False,
+    profile=None,
 ):
     """
     List all the projects managed with catapult.
@@ -73,7 +75,15 @@ def ls(
     perhaps the App belongs to another repo).
     """
 
-    projects_ = list_projects(contains, only, permissions, utc, env, releases_only)
+    projects_ = list_projects(
+        contains=contains,
+        only=only,
+        permissions=permissions,
+        utc=utc,
+        env=env,
+        releases_only=releases_only,
+        profile=profile,
+    )
     format_projects(projects_, author, contains, sort, reverse, permissions)
 
 
@@ -120,7 +130,7 @@ def format_projects(
 
 
 def list_projects(
-    contains, only, permissions, utc, env, releases_only
+    contains, only, permissions, utc, env, releases_only, profile
 ) -> List[Project]:
 
     contains_oid = None
@@ -138,7 +148,7 @@ def list_projects(
     if env is not None:
         env = set(env.split(","))
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
     config = utils.get_config()
     release_bucket = config["release"]["s3_bucket"]
     deploys = config["deploy"]
@@ -151,11 +161,11 @@ def list_projects(
     can_deploy = {}
 
     if permissions:
-        iam_client = utils.iam_client()
+        iam_client = utils.iam_client(profile)
 
-        can_release = check_perms(iam_client, release_bucket, project_names)
+        can_release = check_perms(iam_client, release_bucket, project_names, profile)
         can_deploy = {
-            env_name: check_perms(iam_client, cfg["s3_bucket"], project_names)
+            env_name: check_perms(iam_client, cfg["s3_bucket"], project_names, profile)
             for env_name, cfg in deploys.items()
         }
 
@@ -235,18 +245,23 @@ def list_projects(
     return _projects
 
 
-def check_perms(iam_client, bucket_name, project_names):
+def check_perms(iam_client, bucket_name, project_names, profile):
 
-    region = utils.get_region_name()
+    region = utils.get_region_name(profile)
+    if region is None:
+        utils.fatal(
+            "Can't check permissions with no region set. Try setting in ~/.aws/credentials"
+        )
+
+    caller_identity = utils.get_caller_identity(profile)
+    caller_arn = caller_identity["Arn"]
 
     arn_to_project = {
         f"arn:aws:s3:::{bucket_name}/{project}": project for project in project_names
     }
 
-    user_arn = AWS_MFA_DEVICE.replace(":mfa/", ":user/")
-
     perms = iam_client.simulate_principal_policy(
-        PolicySourceArn=user_arn,
+        PolicySourceArn=caller_arn,
         ActionNames=["s3:PutObject"],
         ResourceArns=list(arn_to_project.keys()),
         ContextEntries=[
