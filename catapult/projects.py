@@ -245,6 +245,34 @@ def list_projects(
     return _projects
 
 
+def assumed_role_to_role(caller_arn: str) -> str:
+    """
+    If it's an assumed role, we expect the caller ARN to look something like:
+
+        arn:aws:sts::000000000000:assumed-role/<assumed-role-name>/<actual.username>
+
+    We want to turn this into something like:
+
+        arn:aws:sts::000000000000:role/<assumed-role-name>
+
+    TODO: Find out if there is a proper way to do this
+    """
+    arn_parts = caller_arn.split(":")
+
+    if arn_parts[:3] != ["arn", "aws", "sts"]:
+        utils.fatal(f"Can't normalise caller ARN: {caller_arn}")
+
+    user_parts = arn_parts[5].split("/")
+
+    if user_parts[0] != "assumed-role":
+        return caller_arn
+
+    user_parts = ["role", user_parts[1]]
+    user_str = "/".join(user_parts)
+    arn_parts[5] = user_str
+    return ":".join(arn_parts)
+
+
 def check_perms(iam_client, bucket_name, project_names, profile):
 
     region = utils.get_region_name(profile)
@@ -255,6 +283,8 @@ def check_perms(iam_client, bucket_name, project_names, profile):
 
     caller_identity = utils.get_caller_identity(profile)
     caller_arn = caller_identity["Arn"]
+
+    caller_arn = assumed_role_to_role(caller_arn)
 
     arn_to_project = {
         f"arn:aws:s3:::{bucket_name}/{project}": project for project in project_names
