@@ -284,6 +284,8 @@ def check_perms(iam_client, bucket_name, project_names, profile):
     caller_identity = utils.get_caller_identity(profile)
     caller_arn = caller_identity["Arn"]
 
+    # We need to do this because you can't call SimulatePrincipalPolicy on an assumed role.
+    # See https://stackoverflow.com/questions/52941478/simulate-principal-policy-using-assumed-role
     caller_arn = assumed_role_to_role(caller_arn)
 
     arn_to_project = {
