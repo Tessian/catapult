@@ -29,17 +29,26 @@ LOG = logging.getLogger(__name__)
         "dry": "prepare a release without committing it",
         "yes": "automatic yes to prompt",
         "rollback": "needed to start a rollback",
+        "profile": "name of AWS profile to use",
     },
     default=True,
 )
 @utils.require_2fa
 def start(
-    _, name, env, version=None, bucket=None, dry=False, yes=False, rollback=False
+    _,
+    name,
+    env,
+    version=None,
+    bucket=None,
+    dry=False,
+    yes=False,
+    rollback=False,
+    profile=None,
 ):
     """
     Deploy a release on an environment.
     """
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
     repo = utils.git_repo()
 
     if version is None:
@@ -138,14 +147,15 @@ def start(
         "name": "project's name",
         "env": "name of the environment where the app will be deployed",
         "bucket": "name of the bucket used to store the deploys",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def current(_, name, env, bucket=None):
+def current(_, name, env, bucket=None, profile=None):
     """
     Show current running version.
     """
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
 
     if bucket is None:
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
@@ -167,17 +177,18 @@ def current(_, name, env, bucket=None):
         "last": "return only the last n deploys",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
         "utc": "list timestamps in UTC instead of local timezone",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def ls(_, name, env, bucket=None, last=None, contains=None, utc=False):
+def ls(_, name, env, bucket=None, last=None, contains=None, utc=False, profile=None):
     """
     Show all the project's deploys.
     """
     if bucket is None:
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
 
-    list_releases(name, last, contains, bucket, utc=utc)
+    list_releases(name, last, contains, bucket, utc=utc, profile=profile)
 
 
 deploy = invoke.Collection("deploy", start, current, ls)

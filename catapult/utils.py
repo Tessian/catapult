@@ -1,5 +1,6 @@
 import dataclasses
 import enum
+import inspect
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ from functools import partial, singledispatch
 from typing import Any, List, Mapping, Optional
 
 import boto3
+import botocore.exceptions
 import colorama
 import emoji
 import pygit2 as git
@@ -154,8 +156,10 @@ warning = partial(_print, style=TextStyle.yellow)
 error = partial(_print, style=TextStyle.red_inverse)
 
 
-def fatal(message: str, exit_code: int = 1):
-    error(f"FATAL: {message}\n")
+def fatal(message: str, exit_code: int = 1, stack_depth=1):
+    # use `stack_depth` to point to a relevant line of code (defaults to where `fatal` was called)
+    caller = inspect.getframeinfo(inspect.stack()[stack_depth][0])
+    error(f"FATAL:{caller.filename}:{caller.lineno}: {message}\n")
     sys.exit(exit_code)
 
 
@@ -246,22 +250,35 @@ def printfmt(data, tabular=False):
     sys.stdout.write(fmt(data) + "\n")
 
 
-def _aws_session(profile=config.AWS_PROFILE):
-    if _SESSION:
-        session = boto3.session.Session(
-            profile_name=profile,
-            aws_access_key_id=_SESSION["aws_access_key_id"],
-            aws_secret_access_key=_SESSION["aws_secret_access_key"],
-            aws_session_token=_SESSION["aws_session_token"],
-        )
+@wrapt.decorator
+def die_on_botocore_errors(wrapped, instance, args, kwargs):
+    try:
+        return wrapped(*args, **kwargs)
+    except botocore.exceptions.BotoCoreError as e:
+        # botocore exception messages seem to be pretty good
+        fatal(f"{type(e).__name__}: {str(e)}", stack_depth=2)
 
-    else:
-        session = boto3.session.Session(profile_name=profile)
+
+def _aws_session(profile=None):
+    if profile is None:
+        profile = config.AWS_PROFILE
+
+    extra_kwargs = {}
+
+    if _SESSION:
+        extra_kwargs = {
+            "aws_access_key_id": _SESSION["aws_access_key_id"],
+            "aws_secret_access_key": _SESSION["aws_secret_access_key"],
+            "aws_session_token": _SESSION["aws_session_token"],
+        }
+
+    session = boto3.session.Session(profile_name=profile, **extra_kwargs)
 
     return session
 
 
-def s3_client(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def s3_client(profile=None):
     """
     Creates a S3 client using the given profile.
 
@@ -276,7 +293,8 @@ def s3_client(profile=config.AWS_PROFILE):
     return session.client("s3")
 
 
-def sts_client(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def sts_client(profile=None):
     """
     Creates a STS client using the given profile.
 
@@ -291,7 +309,8 @@ def sts_client(profile=config.AWS_PROFILE):
     return session.client("sts")
 
 
-def iam_client(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def iam_client(profile=None):
     """
     Creates a IAM client using the given profile.
 
@@ -306,7 +325,8 @@ def iam_client(profile=config.AWS_PROFILE):
     return session.client("iam")
 
 
-def get_region_name(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def get_region_name(profile=None):
     """
     Returns the region name of the given profile.
 
@@ -317,6 +337,12 @@ def get_region_name(profile=config.AWS_PROFILE):
         str: region name
     """
     return _aws_session(profile).region_name
+
+
+@die_on_botocore_errors
+def get_caller_identity(profile=None):
+    sts_client_ = sts_client(profile)
+    return sts_client_.get_caller_identity()
 
 
 def git_repo():
@@ -489,7 +515,7 @@ def changelog(
     return Changelog(logs=logs, rollback=rollback)
 
 
-def _refresh_session():
+def _refresh_session(profile):
     global _SESSION
 
     if _SESSION:
@@ -498,7 +524,7 @@ def _refresh_session():
     if not config.AWS_MFA_DEVICE:
         return
 
-    sts = sts_client()
+    sts = sts_client(profile)
 
     token_code = input(f"Enter MFA Token Code for device {config.AWS_MFA_DEVICE}: ")
 
@@ -523,8 +549,8 @@ def _refresh_session():
 
 
 @wrapt.decorator
-def require_2fa(wrapped, instanct, args, kwargs):
-    _refresh_session()
+def require_2fa(wrapped, instance, args, kwargs):
+    _refresh_session(kwargs.get("profile"))
 
     return wrapped(*args, **kwargs)
 

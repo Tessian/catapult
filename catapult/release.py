@@ -267,13 +267,15 @@ def _get_image_id(ctx, commit: git.Oid, *, name: str, image_name: Optional[str])
     return None
 
 
-@invoke.task(help={"name": "project's name"})
+@invoke.task(
+    help={"name": "project's name", "profile": "name of AWS profile to use",}
+)
 @utils.require_2fa
-def current(_, name):
+def current(_, name, profile=None):
     """
     Show current release.
     """
-    release = next(get_releases(utils.s3_client(), name), None)
+    release = next(get_releases(utils.s3_client(profile), name), None)
 
     if release:
         utils.printfmt(release)
@@ -282,13 +284,19 @@ def current(_, name):
         utils.fatal("Release does not exist")
 
 
-@invoke.task(help={"name": "project's name", "version": "release's version"})
+@invoke.task(
+    help={
+        "name": "project's name",
+        "version": "release's version",
+        "profile": "name of AWS profile to use",
+    }
+)
 @utils.require_2fa
-def get(_, name, version):
+def get(_, name, version, profile=None):
     """
     Show the release.
     """
-    release = get_release(utils.s3_client(), name, int(version))
+    release = get_release(utils.s3_client(profile), name, int(version))
 
     if release:
         utils.printfmt(release)
@@ -303,17 +311,18 @@ def get(_, name, version):
         "last": "return only the last n releases",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
         "utc": "list timestamps in UTC instead of local timezone",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def ls(_, name, last=None, contains=None, utc=False):
+def ls(_, name, last=None, contains=None, utc=False, profile=None):
     """
     Show all the project's releases.
     """
-    list_releases(name, last, contains, utc=utc)
+    list_releases(name, last, contains, utc=utc, profile=profile)
 
 
-def list_releases(name, last, contains, bucket=None, utc=False):
+def list_releases(name, last, contains, bucket=None, utc=False, profile=None):
     repo = None
     contains_oid = None
 
@@ -323,7 +332,7 @@ def list_releases(name, last, contains, bucket=None, utc=False):
         if contains_oid not in repo:
             raise Exception(f"Commit {contains_oid} does not exist in repo")
 
-    releases = get_releases(utils.s3_client(), name, bucket=bucket)
+    releases = get_releases(utils.s3_client(profile), name, bucket=bucket)
 
     release_data = []
     now = datetime.now(tz=timezone.utc)
@@ -364,6 +373,7 @@ def list_releases(name, last, contains, bucket=None, utc=False):
         "yes": "Automatic yes to prompt",
         "rollback": "needed to start a rollback",
         "filter-files-path": "keep only the commits that touched the files listed in this file.",
+        "profile": "name of AWS profile to use",
     },
     default=True,
 )
@@ -379,13 +389,14 @@ def new(
     image_id=None,
     rollback=False,
     filter_files_path=None,
+    profile=None,
 ):
     """
     Create a new release.
     """
     repo = utils.git_repo()
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
     latest = next(get_releases(client, name), None)
     latest_oid = git.Oid(hex=latest.commit) if latest else None
 
@@ -467,10 +478,11 @@ def new(
     help={
         "name": "identifies the project to release.",
         "commit": "git ref of the release to look for.",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def find(_, name, commit=None):
+def find(_, name, commit=None, profile=None):
     """
     Find the first release containing a specific commit.
     """
@@ -480,7 +492,7 @@ def find(_, name, commit=None):
     repo = utils.git_repo()
     oid = utils.revparse(repo, commit)
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
 
     releases = {release.commit: release for release in get_releases(client, name)}
 
@@ -505,10 +517,11 @@ def find(_, name, commit=None):
         "range": "A range in the format <old>..<new>.",
         "resolve": "transform the version range into a valid git log range",
         "verbose": "Produce verbose git log output",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def log(_, name, range, resolve=False, verbose=False):
+def log(_, name, range, resolve=False, verbose=False, profile=None):
     """
     Show git log between versions and/or commits.
 
@@ -518,7 +531,7 @@ def log(_, name, range, resolve=False, verbose=False):
     """
     repo = utils.git_repo()
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
 
     lx, _, rx = range.partition("..")
 
