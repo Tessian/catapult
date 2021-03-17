@@ -13,20 +13,21 @@ import requests
 from catapult.integrations.git import PullRequest, get_git
 from catapult.integrations.tracker import BaseTracker
 
-CH_STORY_ENDPOINT = (
-    "https://api.clubhouse.io/api/v3/stories/{story_id}?token={ch_token}"
-)
+CH_STORY_ENDPOINT = "https://api.clubhouse.io/api/v3/stories/{story_id}"
 
 
 class Clubhouse(BaseTracker):
     def get_linked_prs(self, issue_id: str) -> List[PullRequest]:
         git_provider = get_git()
+
         if issue_id.startswith("ch"):
             issue_id = issue_id[2:]
-        url = CH_STORY_ENDPOINT.format(
-            story_id=issue_id, ch_token=os.environ["CH_TOKEN"]
-        )
-        res = requests.get(url, headers={"Content-Type": "application/json"}).json()
+
+        url = CH_STORY_ENDPOINT.format(story_id=issue_id)
+
+        ch_token = os.environ["CH_TOKEN"]
+        headers = {"Content-Type": "application/json", "Clubhouse-Token": ch_token}
+        res = requests.get(url, headers=headers).json()
 
         prs = []
         for branch in res.get("branches", []):
