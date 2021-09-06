@@ -267,9 +267,7 @@ def _get_image_id(ctx, commit: git.Oid, *, name: str, image_name: Optional[str])
     return None
 
 
-@invoke.task(
-    help={"name": "project's name", "profile": "name of AWS profile to use",}
-)
+@invoke.task(help={"name": "project's name", "profile": "name of AWS profile to use"})
 @utils.require_2fa
 def current(_, name, profile=None):
     """
