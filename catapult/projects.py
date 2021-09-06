@@ -1,6 +1,8 @@
 """
 Commands to inspect projects.
 """
+import re
+
 import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -44,7 +46,7 @@ class Project(NamedTuple):
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
         "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
         "reverse": "reverse-sort the output",
-        "only": "comma-separated list of apps to list",
+        "only": "regex to filter listed apps",
         "permissions": "check if you have permission to release/deploy",
         "utc": "list timestamps in UTC instead of local timezone",
         "env": "show only deploys and for the specified environments (comma separated list)",
@@ -143,7 +145,7 @@ def list_projects(
             raise Exception(f"Commit {contains_oid} does not exist in repo")
 
     if only is not None:
-        only = set(only.split(","))
+        only = re.compile(only)
 
     if env is not None:
         env = set(env.split(","))
@@ -175,7 +177,7 @@ def list_projects(
     localzone = get_localzone()
 
     for name in project_names:
-        if only and name not in only:
+        if only and only.search(name) is None:
             continue
 
         try:
