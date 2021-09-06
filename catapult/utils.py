@@ -491,7 +491,8 @@ def changelog(
         logs = list(git_log(repo=repo, start=latest, end=prev))[:-1]
 
     except InvalidRange:
-        logs = reversed(list(git_log(repo=repo, start=prev, end=latest)))
+        logs = list(git_log(repo=repo, start=prev, end=latest))[:-1]
+        logs.reverse()
 
         rollback = True
 

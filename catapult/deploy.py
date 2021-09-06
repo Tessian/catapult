@@ -65,9 +65,13 @@ def start(
 
     last_deploy = next(get_releases(client, name, bucket=bucket), None)
 
-    releases = list(
-        get_releases(client, name, since=last_deploy.version if last_deploy else 0)
-    )
+    last_deployed_version = int(last_deploy.version) if last_deploy else 0
+    if version is not None:
+        since = min(int(version), last_deployed_version)
+    else:
+        since = last_deployed_version
+
+    releases = list(get_releases(client, name, since=since))
 
     # the field `commits` is not present in all documents as it was introduced
     # in a later version. if any of the releases doesn't track them, we'll
@@ -117,10 +121,17 @@ def start(
         return
 
     if release.rollback:
-        utils.warning("This is a rollback! :warning:\n")
+        commit_count = len(changelog.logs)
+        utils.warning(":warning: This is a rollback! :warning:\n")
+        utils.warning(
+            f":warning: You are rolling back from {name} v{last_deployed_version} to v{version} :warning:\n"
+        )
+        utils.warning(
+            f":warning: This will remove the above {commit_count} commits from {env} :warning:\n"
+        )
 
         if not rollback:
-            utils.warning("Missing flag --rollback\n")
+            utils.error("Missing flag --rollback\n")
             utils.fatal("Aborted!")
 
     if not yes:
