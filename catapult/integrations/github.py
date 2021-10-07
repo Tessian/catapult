@@ -2,7 +2,7 @@
 Requires a personal access token with `repo` scope.
 https://github.com/settings/tokens
 
-This should be set as the env var `GH_TOKEN`.
+This should be set as the env var `GITHUB_API_TOKEN`.
 """
 import os
 import re
@@ -43,7 +43,7 @@ class GitHub(BaseGit):
                 "pr_number": int(parsed_pr_data["pr_number"]),
             },
         }
-        gh_token = os.environ["GH_TOKEN"]
+        gh_token = os.environ["GITHUB_API_TOKEN"]
         res = requests.post(
             GH_ENDPOINT, json=req_data, headers={"Authorization": f"bearer {gh_token}"}
         ).json()
