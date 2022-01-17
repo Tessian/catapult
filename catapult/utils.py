@@ -26,6 +26,7 @@ LOG = logging.getLogger(__name__)
 
 colorama.init()
 
+MAX_LINES_PER_TRUNCATED_CHANGELOG = 50
 
 _SESSION = None
 
@@ -447,14 +448,27 @@ class Changelog:
 
     @property
     def text(self):
-        return self._to_text(short=False)
+        return "\n".join(self._to_lines(short=False))
 
     @property
     def short_text(self):
-        return self._to_text(short=True)
+        return "\n".join(self._to_lines(short=True))
 
-    def _to_text(self, short):
-        text = []
+    @property
+    def truncated_text(self):
+        lines = self._to_lines(short=True)
+        ommitted_commits = len(lines) - MAX_LINES_PER_TRUNCATED_CHANGELOG + 1
+        if ommitted_commits > 1:
+            truncated_lines = lines[: MAX_LINES_PER_TRUNCATED_CHANGELOG - 3]
+            truncated_lines.append(
+                f"[{ommitted_commits} commits ommitted - see git log for full details]"
+            )
+            truncated_lines.extend(lines[-2:])
+            lines = truncated_lines
+        return "\n".join(lines)
+
+    def _to_lines(self, short) -> List[str]:
+        lines = []
 
         for log in self.logs:
             commit_time = datetime.fromtimestamp(log.commit_time)
@@ -463,18 +477,18 @@ class Changelog:
             if short:
                 ref = str(log.short_id)
                 date = commit_time.strftime("%Y-%m-%d")
-                text.append(
+                lines.append(
                     f"{ref}  {date}  {log.author.name:20.20s}  {message_lines[0]}"
                 )
             else:
-                text.append(f"commit {log.hex}")
-                text.append(f"Author: {log.author.name} <{log.author.email}>")
-                text.append(f"Date:   {commit_time}")
-                text.append("")
-                text.extend("    " + line for line in message_lines)
-                text.append("")
+                lines.append(f"commit {log.hex}")
+                lines.append(f"Author: {log.author.name} <{log.author.email}>")
+                lines.append(f"Date:   {commit_time}")
+                lines.append("")
+                lines.extend("    " + line for line in message_lines)
+                lines.append("")
 
-        return "\n".join(text)
+        return lines
 
 
 def changelog(

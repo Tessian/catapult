@@ -88,7 +88,7 @@ def start(
             repo, release.commit, None, keep_only_commits=commits
         )
 
-        changelog_text = changelog.short_text
+        changelog_text = changelog.truncated_text
         is_rollback = release.rollback
 
     else:
@@ -100,7 +100,7 @@ def start(
             keep_only_commits=commits,
         )
 
-        changelog_text = changelog.short_text
+        changelog_text = changelog.truncated_text
         is_rollback = changelog.rollback
 
     action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
