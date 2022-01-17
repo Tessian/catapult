@@ -16,8 +16,10 @@ from catapult.projects import format_projects, list_projects
     help={
         "ticket_id": "Identifier of the ticket, eg `ch12345`, `SBDEV-2808`",
         "author": "include the author of the release/deploy",
-        "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
-        "reverse": "reverse-sort the output",
+        "sort": (
+            "comma-separated list of fields by which to sort the output, eg `timestamp,name`. "
+            "Prepend a field name with `!` to reverse the sorting by that field."
+        ),
         "only": "comma-separated list of apps to list",
         "permissions": "check if you have permission to release/deploy",
         "utc": "list timestamps in UTC instead of local timezone",
@@ -32,7 +34,6 @@ def find(
     ticket_id,
     author=False,
     sort=None,
-    reverse=False,
     only=None,
     permissions=False,
     utc=False,
@@ -68,12 +69,7 @@ def find(
             profile=profile,
         )
         format_projects(
-            projects,
-            author=author,
-            contains=True,
-            sort=sort,
-            reverse=reverse,
-            permissions=permissions,
+            projects, author=author, contains=True, sort=sort, permissions=permissions
         )
 
 
