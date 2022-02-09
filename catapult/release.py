@@ -430,7 +430,7 @@ def new(
     release = Release(
         version=version,
         commit=commit_oid.hex,
-        changelog=changelog.short_text,
+        changelog=changelog.truncated_text,
         version_id="",
         image=image_id,
         timestamp=datetime.now(),
