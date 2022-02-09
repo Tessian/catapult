@@ -493,8 +493,8 @@ class Changelog:
 
 def changelog(
     repo: git.repository.Repository,
-    latest: git.Oid,
-    prev: git.Oid,
+    latest: Optional[git.Oid],
+    prev: Optional[git.Oid],
     *,
     keep_only_files: Optional[List[str]] = None,
     keep_only_commits: Optional[List[str]] = None,

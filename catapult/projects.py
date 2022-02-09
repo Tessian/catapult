@@ -6,14 +6,12 @@ import re
 import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from operator import itemgetter
 from typing import List, NamedTuple, Optional
 
 import invoke
 from tzlocal import get_localzone
 
 from catapult import utils
-from catapult.config import AWS_MFA_DEVICE
 from catapult.release import ActionType, InvalidRelease, fetch_release, release_contains
 
 LOG = logging.getLogger(__name__)
@@ -44,8 +42,10 @@ class Project(NamedTuple):
     help={
         "author": "include the author of the release/deploy",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
-        "sort": "comma-separated list of fields by which to sort the output, eg `timestamp,name`",
-        "reverse": "reverse-sort the output",
+        "sort": (
+            "comma-separated list of fields by which to sort the output, eg `timestamp,name`. "
+            "Prepend a field name with `!` to reverse the sorting by that field."
+        ),
         "only": "regex to filter listed apps",
         "permissions": "check if you have permission to release/deploy",
         "utc": "list timestamps in UTC instead of local timezone",
@@ -60,7 +60,6 @@ def ls(
     author=False,
     contains=None,
     sort=None,
-    reverse=False,
     only=None,
     permissions=False,
     utc=False,
@@ -86,12 +85,44 @@ def ls(
         releases_only=releases_only,
         profile=profile,
     )
-    format_projects(projects_, author, contains, sort, reverse, permissions)
+    format_projects(projects_, author, contains, sort, permissions)
 
 
-def format_projects(
-    _projects: List[Project], author, contains, sort, reverse, permissions
-):
+def sorted_multi(collection, sort_spec: str, valid_sort_keys: List[str]):
+    class reversor:
+        def __init__(self, obj):
+            self.obj = obj
+
+        def __eq__(self, other):
+            return other.obj == self.obj
+
+        def __lt__(self, other):
+            return other.obj < self.obj
+
+    sort_keys = []
+
+    if sort_spec is not None:
+        for key in sort_spec.split(","):
+            rev = False
+            if key.startswith("!"):
+                key = key[1:]
+                rev = True
+            sort_keys.append((key, rev))
+
+    if any(sort_key not in valid_sort_keys for sort_key, rev in sort_keys):
+        raise Exception(
+            f"Invalid sort key in {sort_spec!r}. Valid sort keys: {valid_sort_keys}"
+        )
+
+    return sorted(
+        collection,
+        key=lambda item: tuple(
+            reversor(item[k]) if rev else item[k] for k, rev in sort_keys
+        ),
+    )
+
+
+def format_projects(_projects: List[Project], author, contains, sort, permissions):
     optional_columns = {
         "author": bool(author),
         "contains": bool(contains),
@@ -104,11 +135,6 @@ def format_projects(
         if not show_column:
             valid_sort_keys.remove(column_name)
 
-    sort_keys = [] if sort is None else sort.split(",")
-    if any(sort_key not in valid_sort_keys for sort_key in sort_keys):
-        raise Exception(
-            f"Invalid sort key in {sort!r}. Valid sort keys: {valid_sort_keys}"
-        )
     project_dicts = []
     for project in _projects:
         project_dict = project._asdict()
@@ -125,8 +151,9 @@ def format_projects(
         project_dict["type"] = utils.Formatted(project_dict["type"].name, style)
         project_dicts.append(project_dict)
 
-    if sort_keys:
-        project_dicts.sort(key=itemgetter(*sort_keys), reverse=reverse)
+    project_dicts = sorted_multi(
+        project_dicts, sort_spec=sort, valid_sort_keys=valid_sort_keys
+    )
 
     utils.printfmt(project_dicts, tabular=True)
 

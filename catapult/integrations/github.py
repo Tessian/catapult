@@ -10,6 +10,7 @@ import re
 import requests
 
 from catapult.integrations.git import BaseGit, PullRequest, PullRequestState
+from catapult import utils
 
 GH_ENDPOINT = "https://api.github.com/graphql"
 
@@ -47,6 +48,12 @@ class GitHub(BaseGit):
         res = requests.post(
             GH_ENDPOINT, json=req_data, headers={"Authorization": f"bearer {gh_token}"}
         ).json()
+
+        for error in res.get("errors", []):
+            err_type = error.get("type")
+            err_msg = error.get("message")
+            utils.warning(f"{err_type}: {err_msg}\n")
+            utils.warning(f"{error}\n")
 
         pr_details = res["data"]["repository"]["pullRequest"]
 
