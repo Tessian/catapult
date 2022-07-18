@@ -138,7 +138,7 @@ def confirm(prompt, style=TextStyle.plain):
 def style_text(text: Any, style: TextStyle) -> str:
     text = str(text)
     return termcolor.colored(
-        emoji.emojize(text, use_aliases=True), style.fg, style.bg, attrs=style.attrs
+        emoji.emojize(text, language="alias"), style.fg, style.bg, attrs=style.attrs
     )
 
 
