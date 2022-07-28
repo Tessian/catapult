@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime
 from unittest import mock
@@ -5,9 +6,13 @@ from unittest import mock
 import boto3
 import pytz
 from freezegun import freeze_time
-from invoke import MockContext, Result
 from moto import mock_s3
 from testfixtures import compare
+
+
+os.environ["CATAPULT_AWS_PROFILE"] = "test_profile"
+os.environ["CATAPULT_AWS_MFA_DEVICE"] = "arn"
+
 
 from catapult import release
 
