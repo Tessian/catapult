@@ -1,13 +1,12 @@
-FROM python:3.6-alpine3.12 AS deps
+FROM python:3.7-alpine3.16 AS deps
 
 COPY ./ /app
 
-ENV LIBGIT2_VERSION=1.0.1
+ENV LIBGIT2_VERSION=1.4.3
 
 RUN apk --update add build-base gcc libffi-dev bash libgit2-dev && \
         cd /app && \
-        pip install --no-cache-dir -r requirements.txt && \
-        python setup.py install && \
+        pip install --no-cache-dir . && \
         rm -r /app
 
 FROM deps AS catapult
