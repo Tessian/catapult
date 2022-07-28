@@ -9,8 +9,8 @@ import re
 
 import requests
 
-from catapult.integrations.git import BaseGit, PullRequest, PullRequestState
 from catapult import utils
+from catapult.integrations.git import BaseGit, PullRequest, PullRequestState
 
 GH_ENDPOINT = "https://api.github.com/graphql"
 

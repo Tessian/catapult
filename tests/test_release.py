@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from datetime import datetime
 from unittest import mock
 
@@ -8,7 +8,6 @@ import pytz
 from freezegun import freeze_time
 from moto import mock_s3
 from testfixtures import compare
-
 
 os.environ["CATAPULT_AWS_PROFILE"] = "test_profile"
 os.environ["CATAPULT_AWS_MFA_DEVICE"] = "arn"
