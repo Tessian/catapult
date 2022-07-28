@@ -21,7 +21,7 @@ pipx install git+https://github.com/tessian/catapult
 Getting started
 -------
 
-See [Useage](#useage) below for CLI useage.
+See [Usage](#usage) below for CLI usage.
 
 Or run `catapult --help` or `catapult --help=<task>` to know more about
 all the command's options.
