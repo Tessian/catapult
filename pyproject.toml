@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "catapult"
+version = "1.0.0"
+description = "CLI Tool to create, deploy, and manage releases."
+authors = ["Fede Figus <federico.figus@tessian.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+boto3 = "1.23.10"
+pygit2 = "1.9.2"  # Supports libgit2 v1.4.3 - which is the version available for Apline Linux
+                  # https://github.com/libgit2/pygit2/blob/master/CHANGELOG.rst#192-2022-05-24
+colorama = "0.4.1"
+dataclasses = "0.6"
+emoji = "2.0.0"
+invoke = "1.5.0"
+pytz = "2018.5"
+requests = "2.23.0"
+tabulate = "0.8.9"
+termcolor = "1.1.0"
+toml = "0.10.0"
+tzlocal = "2.0.0"
+wrapt = "1.10.11"
+
+[tool.poetry.dev-dependencies]
+black = "22.6.0"
+freezegun = "0.3.15"
+moto = "3.1.14"
+python-dateutil = "2.8.1"
+testfixtures = "6.14.1"
+pytest = "^7.1.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+catapult = "catapult.__main__:main"

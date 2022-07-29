@@ -1,9 +1,8 @@
 """
 Commands to inspect projects.
 """
-import re
-
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import List, NamedTuple, Optional

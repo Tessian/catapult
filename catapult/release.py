@@ -132,6 +132,9 @@ def _get_versions(client, bucket, key):
         if version["Key"] != key:
             continue
 
+        if version["VersionId"] is None or version["VersionId"] == "null":
+            continue
+
         versions.append(version)
 
     return tuple(versions)
