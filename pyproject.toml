@@ -7,16 +7,16 @@ license = "MIT"
 
 [tool.poetry.dependencies]
 python = "^3.7"
-boto3 = "1.24.42"
+boto3 = "1.12.32"
 pygit2 = "1.9.2"  # Supports libgit2 v1.4.3 - which is the version available for Apline Linux
                   # https://github.com/libgit2/pygit2/blob/master/CHANGELOG.rst#192-2022-05-24
-colorama = "0.4.5"
+colorama = "0.3.9"
 dataclasses = "0.6"
 emoji = "2.0.0"
 invoke = "1.7.1"
-pytz = "2022.1"
-requests = "2.28.1"
-tabulate = "0.8.10"
+pytz = "2020.4"
+requests = "2.24.0"
+tabulate = "0.8.6"
 termcolor = "1.1.0"
 toml = "0.10.2"
 tzlocal = "4.2"
