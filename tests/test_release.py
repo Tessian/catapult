@@ -4,6 +4,7 @@ from datetime import datetime
 from unittest import mock
 
 import boto3
+import pytest
 import pytz
 from freezegun import freeze_time
 from moto import mock_s3
@@ -11,6 +12,8 @@ from testfixtures import compare
 
 os.environ["CATAPULT_AWS_PROFILE"] = "test_profile"
 os.environ["CATAPULT_AWS_MFA_DEVICE"] = "arn"
+# TODO: Specify region directly in the API calls
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
 
 from catapult import release
