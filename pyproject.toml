@@ -6,7 +6,7 @@ authors = ["Fede Figus <federico.figus@tessian.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.7,<=3.9"
+python = ">=3.7,<3.10"
 boto3 = "1.12.32"
 pygit2 = "1.9.2"  # Supports libgit2 v1.4.3 - which is the version available for Apline Linux
                   # https://github.com/libgit2/pygit2/blob/master/CHANGELOG.rst#192-2022-05-24
