@@ -138,6 +138,11 @@ if [ "$is_deploy" = "true" ]; then
         "title_link": env.PIPELINE_URL,
         "fields": [
           {
+            "title": "Environment",
+            "value": env.environment,
+            "short": true
+          },
+          {
             "title": "Version",
             "value": env.version,
             "short": true
@@ -145,26 +150,16 @@ if [ "$is_deploy" = "true" ]; then
           {
             "title": "Concourse",
             "value": env.build_url,
-            "short": true
+            "short": false
           },
           {
             "title": "Commit :github:",
-            "value": env.commit,
-            "short": true
-          },
-          {
-            "title": "Environment",
-            "value": env.environment,
-            "short": true
-          },
-          {
-            "title": "Changelog",
-            "value": "```\n\(env.changelog)\n```",
+            "value": "`\(env.commit)`",
             "short": false
           }
         ],
         "footer": "Concourse CI",
-        "footer_icon": "https://concourse-ci.org/images/trademarks/concourse-black.png",
+        "footer_icon": "https://user-images.githubusercontent.com/5238952/56868786-3c245a80-69c5-11e9-8714-01ac97c7b921.png",
         "ts": env.message_ts | tonumber
       }
     ]' > "$destination/message.json"
@@ -187,21 +182,16 @@ else
           {
             "title": "Concourse",
             "value": env.build_url,
-            "short": true
+            "short": false
           },
           {
             "title": "Commit :github:",
-            "value": env.commit,
-            "short": true
-          },
-          {
-            "title": "Changelog",
-            "value": "```\n\(env.changelog)\n```",
+            "value": "`\(env.commit)`",
             "short": false
           }
         ],
         "footer": "Concourse CI",
-        "footer_icon": "https://concourse-ci.org/images/trademarks/concourse-black.png",
+        "footer_icon": "https://user-images.githubusercontent.com/5238952/56868786-3c245a80-69c5-11e9-8714-01ac97c7b921.png",
         "ts": env.message_ts | tonumber
       }
     ]' > "$destination/message.json"
