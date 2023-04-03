@@ -1,13 +1,20 @@
 import json
+import os
 from datetime import datetime
 from unittest import mock
 
 import boto3
+import pytest
 import pytz
 from freezegun import freeze_time
-from invoke import MockContext, Result
 from moto import mock_s3
 from testfixtures import compare
+
+os.environ["CATAPULT_AWS_PROFILE"] = "test_profile"
+os.environ["CATAPULT_AWS_MFA_DEVICE"] = "arn"
+# TODO: Specify region directly in the API calls
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
 
 from catapult import release
 
@@ -61,7 +68,7 @@ def test_get_release_from_bucket():
         author="author@example.com",
     )
 
-    r = release._get_release(client, "test", "test-app", None)
+    r = release.fetch_release(client, "test", "test-app", None)
 
     compare(expected, r)
 
@@ -118,7 +125,7 @@ def test_get_latest_release():
         author="author@example.com",
     )
 
-    r = release._get_release(client, "test", "test-app", None)
+    r = release.fetch_release(client, "test", "test-app", None)
 
     compare(expected, r)
 
@@ -175,7 +182,7 @@ def test_get_older_release():
         author="author@example.com",
     )
 
-    r = release._get_release(client, "test", "test-app", old["VersionId"])
+    r = release.fetch_release(client, "test", "test-app", old["VersionId"])
 
     compare(expected, r)
 

@@ -1,15 +1,21 @@
 """
 Commands to manage deployments.
 """
+import dataclasses
 import logging
 from datetime import datetime
 
-import dataclasses
 import invoke
 import pygit2 as git
 
 from catapult import config, utils
-from catapult.release import ActionType, get_release, get_releases, put_release
+from catapult.release import (
+    ActionType,
+    get_release,
+    get_releases,
+    list_releases,
+    put_release,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -23,17 +29,26 @@ LOG = logging.getLogger(__name__)
         "dry": "prepare a release without committing it",
         "yes": "automatic yes to prompt",
         "rollback": "needed to start a rollback",
+        "profile": "name of AWS profile to use",
     },
     default=True,
 )
 @utils.require_2fa
 def start(
-    _, name, env, version=None, bucket=None, dry=False, yes=False, rollback=False
+    _,
+    name,
+    env,
+    version=None,
+    bucket=None,
+    dry=False,
+    yes=False,
+    rollback=False,
+    profile=None,
 ):
     """
     Deploy a release on an environment.
     """
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
     repo = utils.git_repo()
 
     if version is None:
@@ -49,18 +64,43 @@ def start(
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
 
     last_deploy = next(get_releases(client, name, bucket=bucket), None)
+
+    last_deployed_version = int(last_deploy.version) if last_deploy else 0
+    if version is not None:
+        since = min(int(version), last_deployed_version)
+    else:
+        since = last_deployed_version
+
+    releases = list(get_releases(client, name, since=since))
+
+    # the field `commits` is not present in all documents as it was introduced
+    # in a later version. if any of the releases doesn't track them, we'll
+    # skip the commit filtering to avoid not showing commits in the changelog.
+    if any(rel.commits is None for rel in releases):
+        commits = None
+
+    else:
+        commits = [commit for rel in releases if rel.commits for commit in rel.commits]
+
     if last_deploy is None:
         # first deploy is always None
-        changelog_text = release.changelog
+        changelog = utils.changelog(
+            repo, release.commit, None, keep_only_commits=commits
+        )
+
+        changelog_text = changelog.truncated_text
         is_rollback = release.rollback
 
     else:
         # create a changelog from the latest deploy commit
         changelog = utils.changelog(
-            repo, git.Oid(hex=release.commit), git.Oid(hex=last_deploy.commit)
+            repo,
+            git.Oid(hex=release.commit),
+            git.Oid(hex=last_deploy.commit),
+            keep_only_commits=commits,
         )
 
-        changelog_text = changelog.text
+        changelog_text = changelog.truncated_text
         is_rollback = changelog.rollback
 
     action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
@@ -72,6 +112,7 @@ def start(
         author=utils.get_author(repo, git.Oid(hex=release.commit)),
         rollback=is_rollback,
         action_type=action_type,
+        commits=commits,
     )
 
     utils.printfmt(release)
@@ -80,10 +121,17 @@ def start(
         return
 
     if release.rollback:
-        utils.warning("This is a rollback! :warning:\n")
+        commit_count = len(changelog.logs)
+        utils.warning(":warning: This is a rollback! :warning:\n")
+        utils.warning(
+            f":warning: You are rolling back from {name} v{last_deployed_version} to v{version} :warning:\n"
+        )
+        utils.warning(
+            f":warning: This will remove the above {commit_count} commits from {env} :warning:\n"
+        )
 
         if not rollback:
-            utils.warning("Missing flag --rollback\n")
+            utils.error("Missing flag --rollback\n")
             utils.fatal("Aborted!")
 
     if not yes:
@@ -110,14 +158,15 @@ def start(
         "name": "project's name",
         "env": "name of the environment where the app will be deployed",
         "bucket": "name of the bucket used to store the deploys",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def current(_, name, env, bucket=None):
+def current(_, name, env, bucket=None, profile=None):
     """
     Show current running version.
     """
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
 
     if bucket is None:
         bucket = utils.get_config()["deploy"][env]["s3_bucket"]
@@ -131,4 +180,26 @@ def current(_, name, env, bucket=None):
         utils.fatal("Release does not exist")
 
 
-deploy = invoke.Collection("deploy", start, current)
+@invoke.task(
+    help={
+        "name": "project's name",
+        "env": "name of the environment where the app will be deployed",
+        "bucket": "name of the bucket used to store the deploys",
+        "last": "return only the last n deploys",
+        "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
+        "utc": "list timestamps in UTC instead of local timezone",
+        "profile": "name of AWS profile to use",
+    }
+)
+@utils.require_2fa
+def ls(_, name, env, bucket=None, last=None, contains=None, utc=False, profile=None):
+    """
+    Show all the project's deploys.
+    """
+    if bucket is None:
+        bucket = utils.get_config()["deploy"][env]["s3_bucket"]
+
+    list_releases(name, last, contains, bucket, utc=utc, profile=profile)
+
+
+deploy = invoke.Collection("deploy", start, current, ls)

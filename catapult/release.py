@@ -1,17 +1,19 @@
 """
 Commands to manage releases.
 """
+import dataclasses
+import functools
 import json
 import logging
 import os
 from datetime import datetime, timezone
 from enum import Enum, auto
-from typing import Optional
+from typing import List, Optional
 
-import dataclasses
 import invoke
 import pygit2 as git
 import pytz
+from tzlocal import get_localzone
 
 from catapult import config, utils
 
@@ -36,6 +38,8 @@ class Release:
     rollback: bool = False
     action_type: ActionType = ActionType.manual
 
+    commits: Optional[List[str]] = None
+
 
 class InvalidRelease(Exception):
     """
@@ -43,7 +47,8 @@ class InvalidRelease(Exception):
     """
 
 
-def _get_release(client, bucket, key, version_id=None) -> Release:
+@functools.lru_cache(maxsize=None)
+def fetch_release(client, bucket, key, version_id=None) -> Release:
     """
     Fetches a release from a S3 object.
 
@@ -83,6 +88,7 @@ def _get_release(client, bucket, key, version_id=None) -> Release:
         action_type = ActionType[
             body.get("action_type", "automated" if author is None else "manual")
         ]
+        commits = body.get("commits")
 
     except KeyError as exc:
         raise InvalidRelease(f"Missing property in JSON: {exc}")
@@ -101,17 +107,37 @@ def _get_release(client, bucket, key, version_id=None) -> Release:
         author=author,
         rollback=rollback,
         action_type=action_type,
+        commits=commits,
     )
 
 
+@functools.lru_cache(maxsize=None)
 def _get_versions(client, bucket, key):
-    resp = client.list_object_versions(Bucket=bucket, Prefix=key)
+    """
+    Returns all the version IDs for a key ordered by last modified timestamp.
+    """
+    resp_iterator = client.get_paginator("list_object_versions").paginate(
+        Bucket=bucket, Prefix=key
+    )
+    try:
+        versions = [version for page in resp_iterator for version in page["Versions"]]
+    except KeyError:
+        utils.warning("No versions found\n")
+        return ()
 
-    for version in resp.get("Versions", []):
+    obj_versions = sorted(versions, key=lambda v: v["LastModified"])
+    versions = []
+
+    for version in obj_versions:
         if version["Key"] != key:
             continue
 
-        yield version
+        if version["VersionId"] is None or version["VersionId"] == "null":
+            continue
+
+        versions.append(version)
+
+    return tuple(versions)
 
 
 _DATETIME_MAX = pytz.utc.localize(datetime.max)
@@ -148,7 +174,7 @@ def get_releases(client, key, since=None, bucket=None):
 
     for version in versions:
         try:
-            release = _get_release(client, bucket, key, version["VersionId"])
+            release = fetch_release(client, bucket, key, version["VersionId"])
 
         except InvalidRelease as exc:
             # skip invalid releases in object history
@@ -156,7 +182,7 @@ def get_releases(client, key, since=None, bucket=None):
             continue
 
         if since and release.version < since:
-            continue
+            break
 
         yield release
 
@@ -210,6 +236,9 @@ def put_release(client, bucket, key, release):
                 "author": release.author,
                 "rollback": release.rollback,
                 "action_type": release.action_type.name,
+                "commits": [str(commit) for commit in release.commits]
+                if release.commits
+                else None,
             }
         ),
     )
@@ -241,13 +270,13 @@ def _get_image_id(ctx, commit: git.Oid, *, name: str, image_name: Optional[str])
     return None
 
 
-@invoke.task(help={"name": "project's name"})
+@invoke.task(help={"name": "project's name", "profile": "name of AWS profile to use"})
 @utils.require_2fa
-def current(_, name):
+def current(_, name, profile=None):
     """
     Show current release.
     """
-    release = next(get_releases(utils.s3_client(), name), None)
+    release = next(get_releases(utils.s3_client(profile), name), None)
 
     if release:
         utils.printfmt(release)
@@ -256,13 +285,19 @@ def current(_, name):
         utils.fatal("Release does not exist")
 
 
-@invoke.task(help={"name": "project's name", "version": "release's version"})
+@invoke.task(
+    help={
+        "name": "project's name",
+        "version": "release's version",
+        "profile": "name of AWS profile to use",
+    }
+)
 @utils.require_2fa
-def get(_, name, version):
+def get(_, name, version, profile=None):
     """
     Show the release.
     """
-    release = get_release(utils.s3_client(), name, int(version))
+    release = get_release(utils.s3_client(profile), name, int(version))
 
     if release:
         utils.printfmt(release)
@@ -276,13 +311,19 @@ def get(_, name, version):
         "name": "project's name",
         "last": "return only the last n releases",
         "contains": "commit hash or revision of a commit, eg `bcc31bc`, `HEAD`, `some_branch`",
+        "utc": "list timestamps in UTC instead of local timezone",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def ls(_, name, last=None, contains=None):
+def ls(_, name, last=None, contains=None, utc=False, profile=None):
     """
     Show all the project's releases.
     """
+    list_releases(name, last, contains, utc=utc, profile=profile)
+
+
+def list_releases(name, last, contains, bucket=None, utc=False, profile=None):
     repo = None
     contains_oid = None
 
@@ -292,19 +333,25 @@ def ls(_, name, last=None, contains=None):
         if contains_oid not in repo:
             raise Exception(f"Commit {contains_oid} does not exist in repo")
 
-    releases = get_releases(utils.s3_client(), name)
+    releases = get_releases(utils.s3_client(profile), name, bucket=bucket)
 
     release_data = []
     now = datetime.now(tz=timezone.utc)
+    localzone = get_localzone()
     last = int(last) if last else None
+
     for i, rel in enumerate(releases):
         if i == last:
             break
+
+        timestamp_utc = rel.timestamp
+        timestamp = timestamp_utc if utc else timestamp_utc.astimezone(localzone)
+
         release_dict = {
             "version": rel.version,
             "commit": rel.commit,
-            "timestamp": rel.timestamp,
-            "age": now - rel.timestamp,
+            "timestamp": timestamp,
+            "age": now - timestamp_utc,
             "author": rel.author,
             "rollback": rel.rollback,
             "action_type": rel.action_type,
@@ -326,6 +373,8 @@ def ls(_, name, last=None, contains=None):
         "dry": "prepare a release without committing it",
         "yes": "Automatic yes to prompt",
         "rollback": "needed to start a rollback",
+        "filter-files-path": "keep only the commits that touched the files listed in this file.",
+        "profile": "name of AWS profile to use",
     },
     default=True,
 )
@@ -340,13 +389,15 @@ def new(
     image_name=None,
     image_id=None,
     rollback=False,
+    filter_files_path=None,
+    profile=None,
 ):
     """
     Create a new release.
     """
     repo = utils.git_repo()
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
     latest = next(get_releases(client, name), None)
     latest_oid = git.Oid(hex=latest.commit) if latest else None
 
@@ -368,20 +419,28 @@ def new(
         if image_id is None:
             utils.fatal("Image not found")
 
-    changelog = utils.changelog(repo, commit_oid, latest_oid)
+    keep_only_files = None
+    if filter_files_path:
+        with open(filter_files_path) as fp:
+            keep_only_files = [line.strip() for line in fp]
+
+    changelog = utils.changelog(
+        repo, commit_oid, latest_oid, keep_only_files=keep_only_files
+    )
 
     action_type = ActionType.automated if config.IS_CONCOURSE else ActionType.manual
 
     release = Release(
         version=version,
         commit=commit_oid.hex,
-        changelog=changelog.text,
+        changelog=changelog.truncated_text,
         version_id="",
         image=image_id,
         timestamp=datetime.now(),
         author=utils.get_author(repo, commit_oid),
         rollback=changelog.rollback,
         action_type=action_type,
+        commits=[commit.hex for commit in changelog.logs],
     )
 
     utils.printfmt(release)
@@ -420,10 +479,11 @@ def new(
     help={
         "name": "identifies the project to release.",
         "commit": "git ref of the release to look for.",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def find(_, name, commit=None):
+def find(_, name, commit=None, profile=None):
     """
     Find the first release containing a specific commit.
     """
@@ -433,7 +493,7 @@ def find(_, name, commit=None):
     repo = utils.git_repo()
     oid = utils.revparse(repo, commit)
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
 
     releases = {release.commit: release for release in get_releases(client, name)}
 
@@ -454,37 +514,43 @@ def find(_, name, commit=None):
 
 @invoke.task(
     help={
-        "git_range": "identifies the project to release.",
+        "name": "The name of the project whose versions to use",
+        "range": "A range in the format <old>..<new>.",
         "resolve": "transform the version range into a valid git log range",
+        "verbose": "Produce verbose git log output",
+        "profile": "name of AWS profile to use",
     }
 )
 @utils.require_2fa
-def log(_, name, git_range, resolve=False):
+def log(_, name, range, resolve=False, verbose=False, profile=None):
     """
-    Search a release from the commit hash.
+    Show git log between versions and/or commits.
+
+    This resolves catapult versions (eg `v123`) into git commits, in
+    addition to anything that git can map to a single commit, eg
+    `fc20299e`, `my_branch`, `some_tag`.
     """
     repo = utils.git_repo()
 
-    client = utils.s3_client()
+    client = utils.s3_client(profile)
 
-    lx, _, rx = git_range.partition("..")
+    lx, _, rx = range.partition("..")
 
     def resolve_range(ref):
         if ref.startswith("v") and ref[1:].isdigit():
             release = get_release(client, name, int(ref[1:]))
-
-            return release.commit
-
-        return ref
+            ref = release.commit
+        return utils.revparse(repo, ref)
 
     start = resolve_range(lx)
     end = resolve_range(rx)
 
     if resolve:
-        text = f"{start}...{end}"
+        text = f"{start.hex}...{end.hex}"
 
     else:
-        text = utils.changelog(repo, git.Oid(hex=end), git.Oid(hex=start)).text
+        changelog = utils.changelog(repo, end, start)
+        text = changelog.text if verbose else changelog.short_text
 
     print(text)
 
@@ -493,14 +559,14 @@ def release_contains(
     repo: git.Repository, release: Release, commit_oid: git.Oid, name: str
 ):
     if not release.commit:
-        LOG.warning(f"{name} has a null commit ref")
+        utils.warning(f"{name} has a null commit ref\n")
         return "?"
 
     release_oid = git.Oid(hex=release.commit)
     try:
         in_release = utils.commit_contains(repo, release_oid, commit_oid)
-    except git.GitError as e:
-        LOG.warning(f"Repo: [{repo.workdir}], Error: [{repr(e)}], Project: [{name}]")
+    except utils.CommitNotFound as e:
+        utils.warning(f"Error: [{repr(e)}], Project: [{name}]\n")
         in_release = "?"
 
     return in_release

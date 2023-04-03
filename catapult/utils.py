@@ -1,4 +1,6 @@
+import dataclasses
 import enum
+import inspect
 import json
 import logging
 import os
@@ -9,8 +11,8 @@ from functools import partial, singledispatch
 from typing import Any, List, Mapping, Optional
 
 import boto3
+import botocore.exceptions
 import colorama
-import dataclasses
 import emoji
 import pygit2 as git
 import termcolor
@@ -24,6 +26,7 @@ LOG = logging.getLogger(__name__)
 
 colorama.init()
 
+MAX_LINES_PER_TRUNCATED_CHANGELOG = 50
 
 _SESSION = None
 
@@ -37,11 +40,11 @@ try:
     )
 
     if _SESSION["aws_session_expiration"] < datetime.utcnow():
-        LOG.warning("Stored session has expired")
+        LOG.debug("Stored session has expired")
         _SESSION = None
 
 except Exception as exc:
-    LOG.error("Cannot load catapult session: " + str(exc))
+    LOG.debug("Cannot load catapult session: " + str(exc))
     pass
 
 
@@ -97,6 +100,7 @@ class TextStyle(enum.Enum):
     blue = ("blue", None, [])
     red = ("red", None, [])
     red_inverse = ("white", "on_red", ["bold"])
+    green_inverse = ("white", "on_green", ["bold"])
 
     def __init__(self, fg, bg, attrs):
         self.fg = fg
@@ -134,21 +138,29 @@ def confirm(prompt, style=TextStyle.plain):
 def style_text(text: Any, style: TextStyle) -> str:
     text = str(text)
     return termcolor.colored(
-        emoji.emojize(text, use_aliases=True), style.fg, style.bg, attrs=style.attrs
+        emoji.emojize(text, language="alias"), style.fg, style.bg, attrs=style.attrs
     )
 
 
 def _print(text: str, style: TextStyle) -> None:
-    print(style_text(text, style), end="", file=sys.stderr)
+    end = ""
+    if text and text[-1] == "\n":
+        # Prevent background colours leaking to the next line
+        text = text[:-1]
+        end = "\n"
+    print(style_text(text, style), end=end, file=sys.stderr)
 
 
 success = partial(_print, style=TextStyle.green)
+alert = partial(_print, style=TextStyle.green_inverse)
 warning = partial(_print, style=TextStyle.yellow)
 error = partial(_print, style=TextStyle.red_inverse)
 
 
-def fatal(message: str, exit_code: int = 1):
-    error(f"FATAL: {message}\n")
+def fatal(message: str, exit_code: int = 1, stack_depth=1):
+    # use `stack_depth` to point to a relevant line of code (defaults to where `fatal` was called)
+    caller = inspect.getframeinfo(inspect.stack()[stack_depth][0])
+    error(f"FATAL:{caller.filename}:{caller.lineno}: {message}\n")
     sys.exit(exit_code)
 
 
@@ -156,8 +168,7 @@ def fatal(message: str, exit_code: int = 1):
 def to_human(data: Any):
     if dataclasses.is_dataclass(data):
         table = [
-            [f.name, getattr(data, f.name)]
-            for i, f in enumerate(dataclasses.fields(data))
+            [f.name, to_human(getattr(data, f.name))] for f in dataclasses.fields(data)
         ]
         return tabulate(table, [], tablefmt="simple")
 
@@ -166,7 +177,15 @@ def to_human(data: Any):
 
 @to_human.register(list)
 def _(data: list):
-    return "\n".join(to_human(v) for v in data)
+    text = ", ".join(to_human(v) for v in data)
+    length = len(data)
+
+    max_len = 100
+    if len(text) > max_len:
+        trunc = f"... ({length})"
+        return text[: max_len - len(trunc)] + trunc
+
+    return text
 
 
 @to_human.register(dict)
@@ -232,22 +251,35 @@ def printfmt(data, tabular=False):
     sys.stdout.write(fmt(data) + "\n")
 
 
-def _aws_session(profile=config.AWS_PROFILE):
-    if _SESSION:
-        session = boto3.session.Session(
-            profile_name=profile,
-            aws_access_key_id=_SESSION["aws_access_key_id"],
-            aws_secret_access_key=_SESSION["aws_secret_access_key"],
-            aws_session_token=_SESSION["aws_session_token"],
-        )
+@wrapt.decorator
+def die_on_botocore_errors(wrapped, instance, args, kwargs):
+    try:
+        return wrapped(*args, **kwargs)
+    except botocore.exceptions.BotoCoreError as e:
+        # botocore exception messages seem to be pretty good
+        fatal(f"{type(e).__name__}: {str(e)}", stack_depth=2)
 
-    else:
-        session = boto3.session.Session(profile_name=profile)
+
+def _aws_session(profile=None):
+    if profile is None:
+        profile = config.AWS_PROFILE
+
+    extra_kwargs = {}
+
+    if _SESSION:
+        extra_kwargs = {
+            "aws_access_key_id": _SESSION["aws_access_key_id"],
+            "aws_secret_access_key": _SESSION["aws_secret_access_key"],
+            "aws_session_token": _SESSION["aws_session_token"],
+        }
+
+    session = boto3.session.Session(profile_name=profile, **extra_kwargs)
 
     return session
 
 
-def s3_client(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def s3_client(profile=None):
     """
     Creates a S3 client using the given profile.
 
@@ -262,7 +294,8 @@ def s3_client(profile=config.AWS_PROFILE):
     return session.client("s3")
 
 
-def sts_client(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def sts_client(profile=None):
     """
     Creates a STS client using the given profile.
 
@@ -277,7 +310,8 @@ def sts_client(profile=config.AWS_PROFILE):
     return session.client("sts")
 
 
-def iam_client(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def iam_client(profile=None):
     """
     Creates a IAM client using the given profile.
 
@@ -292,7 +326,8 @@ def iam_client(profile=config.AWS_PROFILE):
     return session.client("iam")
 
 
-def get_region_name(profile=config.AWS_PROFILE):
+@die_on_botocore_errors
+def get_region_name(profile=None):
     """
     Returns the region name of the given profile.
 
@@ -303,6 +338,12 @@ def get_region_name(profile=config.AWS_PROFILE):
         str: region name
     """
     return _aws_session(profile).region_name
+
+
+@die_on_botocore_errors
+def get_caller_identity(profile=None):
+    sts_client_ = sts_client(profile)
+    return sts_client_.get_caller_identity()
 
 
 def git_repo():
@@ -323,7 +364,7 @@ def git_repo():
 
         if path.parent == path:
             # reached '/'
-            logging.error(f"Cannot find git repository")
+            error("Cannot find git repository\n")
             return None
 
         path = path.parent
@@ -347,10 +388,21 @@ def get_author(repo: git.Repository, commit: git.Oid):
     return repo.get(commit).author.email
 
 
+class CommitNotFound(Exception):
+    def __init__(self, commit_oid):
+        self.commit_oid = commit_oid
+
+
 def commit_contains(
     repo: git.Repository, commit: git.Oid, maybe_ancestor: git.Oid
 ) -> bool:
     # Does `commit` contain `maybe_ancestor`?
+
+    if commit not in repo:
+        raise CommitNotFound(commit)
+
+    if maybe_ancestor not in repo:
+        raise CommitNotFound(maybe_ancestor)
 
     if commit == maybe_ancestor:
         return True
@@ -372,6 +424,11 @@ def git_log(
     if start is None:
         start = repo.head.target
 
+    if start not in repo:
+        fatal(
+            f"Can't find commit {start.hex}. Are you in the right repo, or do you need to pull?"
+        )
+
     for commit in repo.walk(start, git.GIT_SORT_TOPOLOGICAL):
         yield commit
 
@@ -391,36 +448,89 @@ class Changelog:
 
     @property
     def text(self):
-        text = []
+        return "\n".join(self._to_lines(short=False))
+
+    @property
+    def short_text(self):
+        return "\n".join(self._to_lines(short=True))
+
+    @property
+    def truncated_text(self):
+        lines = self._to_lines(short=True)
+        ommitted_commits = len(lines) - MAX_LINES_PER_TRUNCATED_CHANGELOG + 1
+        if ommitted_commits > 1:
+            truncated_lines = lines[: MAX_LINES_PER_TRUNCATED_CHANGELOG - 3]
+            truncated_lines.append(
+                f"[{ommitted_commits} commits ommitted - see git log for full details]"
+            )
+            truncated_lines.extend(lines[-2:])
+            lines = truncated_lines
+        return "\n".join(lines)
+
+    def _to_lines(self, short) -> List[str]:
+        lines = []
 
         for log in self.logs:
             commit_time = datetime.fromtimestamp(log.commit_time)
+            message_lines = log.message.split("\n")
 
-            text.append(f"commit {log.hex}")
-            text.append(f"Author: {log.author.name} <{log.author.email}>")
-            text.append(f"Date:   {commit_time}")
-            text.append("")
-            text.extend("    " + line for line in log.message.split("\n"))
-            text.append("")
+            if short:
+                ref = str(log.short_id)
+                date = commit_time.strftime("%Y-%m-%d")
+                lines.append(
+                    f"{ref}  {date}  {log.author.name:20.20s}  {message_lines[0]}"
+                )
+            else:
+                lines.append(f"commit {log.hex}")
+                lines.append(f"Author: {log.author.name} <{log.author.email}>")
+                lines.append(f"Date:   {commit_time}")
+                lines.append("")
+                lines.extend("    " + line for line in message_lines)
+                lines.append("")
 
-        return "\n".join(text)
+        return lines
 
 
-def changelog(repo: git.repository.Repository, latest: git.Oid, prev: git.Oid):
+def changelog(
+    repo: git.repository.Repository,
+    latest: Optional[git.Oid],
+    prev: Optional[git.Oid],
+    *,
+    keep_only_files: Optional[List[str]] = None,
+    keep_only_commits: Optional[List[str]] = None,
+):
     rollback = False
 
     try:
         logs = list(git_log(repo=repo, start=latest, end=prev))[:-1]
 
     except InvalidRange:
-        logs = reversed(list(git_log(repo=repo, start=prev, end=latest)))
+        logs = list(git_log(repo=repo, start=prev, end=latest))[:-1]
+        logs.reverse()
 
         rollback = True
+
+    if keep_only_files is not None:
+        keep_only_files = set(keep_only_files)
+        filtered_logs = []
+        for commit in logs:
+            diff = repo.diff(commit.parents[0], commit)
+            all_files = {delta.new_file.path for delta in diff.deltas} | {
+                delta.old_file.path for delta in diff.deltas
+            }
+
+            if keep_only_files & all_files:
+                filtered_logs.append(commit)
+
+        logs = filtered_logs
+
+    if keep_only_commits:
+        logs = [commit for commit in logs if commit.oid.hex in keep_only_commits]
 
     return Changelog(logs=logs, rollback=rollback)
 
 
-def _refresh_session():
+def _refresh_session(profile):
     global _SESSION
 
     if _SESSION:
@@ -429,9 +539,9 @@ def _refresh_session():
     if not config.AWS_MFA_DEVICE:
         return
 
-    sts = sts_client()
+    sts = sts_client(profile)
 
-    token_code = input("MFA Token Code: ")
+    token_code = input(f"Enter MFA Token Code for device {config.AWS_MFA_DEVICE}: ")
 
     resp = sts.get_session_token(
         DurationSeconds=36000, SerialNumber=config.AWS_MFA_DEVICE, TokenCode=token_code
@@ -454,8 +564,8 @@ def _refresh_session():
 
 
 @wrapt.decorator
-def require_2fa(wrapped, instanct, args, kwargs):
-    _refresh_session()
+def require_2fa(wrapped, instance, args, kwargs):
+    _refresh_session(kwargs.get("profile"))
 
     return wrapped(*args, **kwargs)
 
@@ -471,14 +581,21 @@ def get_config():
 
     if CONFIG is None:
         repo = git_repo()
-        if not repo:
-            return {}
+        if repo:
+            path = os.path.dirname(repo.path.rstrip("/"))
+            path = os.path.join(path, ".catapult.toml")
+        else:
+            if not os.path.exists(".catapult.toml"):
+                return {}
 
-        path = os.path.dirname(git_repo().path.rstrip("/"))
-        path = os.path.join(path, ".catapult.toml")
+            path = ".catapult.toml"
 
-        with open(path, "r") as fp:
-            CONFIG = toml.load(fp)
+        try:
+            with open(path, "r") as fp:
+                CONFIG = toml.load(fp)
+
+        except FileNotFoundError:
+            fatal(f"Can't find catapult config at {path}")
 
         override_docker_repo = os.environ.get("CATAPULT_CONFIG_DOCKER_REPOSITORY")
         if override_docker_repo is not None:

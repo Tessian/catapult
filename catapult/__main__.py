@@ -11,6 +11,7 @@ import invoke
 from catapult.deploy import deploy
 from catapult.projects import projects
 from catapult.release import release
+from catapult.tickets import tickets
 
 __version__ = "0.1"
 
@@ -64,6 +65,7 @@ def create_collection():
     root.add_collection(release, name="release")
     root.add_collection(deploy, name="deploy")
     root.add_collection(projects, name="projects")
+    root.add_collection(tickets, name="tickets")
     return root
 
 

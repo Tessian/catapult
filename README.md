@@ -1,70 +1,88 @@
 Catapult
 ========
 
-CLI Tool to create, deploy, and manage releases.
+A tool to create, deploy, and manage releases.
 
 <p align="center"><img src="media/logo.png" height="256" alt="catapult logo"></p>
 
-Install
+Installation
 -------
+
+> **Warning**
+> _Requires `libssl-dev` and `libgit2` [*](#dependencies)_
+
+Install using [pipx](https://pypa.github.io/pipx/) (recommended):
+
+```
+pipx install git+https://github.com/tessian/catapult
+```
+
+
+Getting started
+-------
+
+See [Usage](#usage) below for CLI usage.
+
+Or run `catapult --help` or `catapult --help=<task>` to know more about
+all the command's options.
+
 
 1. Create an AWS account
 2. Set up AWS credentials using any of the [recommended approches](https://docs.aws.amazon.com/sdk-for-java/v1/developer-guide/setup-credentials.html)
-3. Install [libgit2](https://libgit2.github.com/)
 
-Linux:
-
-Requires the development version of `openssl` to be installed.
-- Debian based distros:
-  ```bash
-  apt install libssl-dev
-  ```
-- RedHat based distros:
-  ```bash
-  yum install openssl-devel
-  ```
-
-```bash
-wget https://github.com/libgit2/libgit2/archive/v0.27.0.tar.gz
-tar xzf v0.27.0.tar.gz
-cd libgit2-0.27.0/
-cmake .
-make
-sudo make install
-
-# Refresh cache for shared libraries
-# https://github.com/libgit2/pygit2/issues/603
-sudo ldconfig
-```
-
-MacOS
-```bash
-brew install libgit2
-```
-
-4. Install **catapult**:
-
-```bash
-cd ./catapult
-pip3 install -r requirements.txt
-python3 setup.py develop
-```
 
 ### Configuration
 
 Set these environment variables to configure catapult:
 
-* `CATAPULT_GIT_REPO`: path to the git repository (default: `./`).
-  **!!! If this is not set, catapult should be run inside the git repository !!!**
-* `CATAPULT_AWS_PROFILE`: use this profile from your credential file. Required.
-* `CATAPULT_AWS_MFA_DEVICE`: ARN of the MFA device used to get the session credentials.
+* `CATAPULT_AWS_PROFILE` <sup>_[**Required**]_ </sup>: use this profile from your credential file. 
+* `CATAPULT_TARGET_GIT_REPO` <sup>_[Optional]_ </sup>: path to the git repository (default: `./`).
+  _If this is not set, catapult should be run inside the git repository_
+* `CATAPULT_AWS_MFA_DEVICE` <sup>_[Optional]_ </sup>: ARN of the MFA device used to get the session credentials. You can find this on the "Security Credentials" tab of [your user account in IAM](https://console.aws.amazon.com/iam/home).
 
-Description
------------
+Additional environment variables used for integration with GitHub and Shortcut (formerly Clubhouse):
+
+* `GITHUB_API_TOKEN`: A GitHub personal access token with `repo` scope. Generate one at https://github.com/settings/tokens
+* `SHORTCUT_API_TOKEN`: A Shortcut API token. Generate one at https://app.shortcut.com/settings/account/api-tokens
+
+
+So what exactly is Catapult?
+-------
+
+Catapult is a software release tool that leverages Amazon S3 to enable
+the release process to have:
+
+- Fine-grained permissioning
+- An extensive audit trail
+- Flexibility
+- Two-factor Authentication
+- High Speed & High Availability
 
 The release process of an application, or project, is driven by a file
 stored in a S3 bucket. The file contains information describing the release
 and it's used by Concourse to create and deploy the build artifacts.
+
+So, catapult is two things:
+
+- a command line tool that manages state in an S3 bucket
+- a [Concourse](https://concourse-ci.org/) Resource, that consumes said S3 bucket
+
+
+### Command line
+
+In the background this is doing a number of checks. It’s looking at S3,
+git and our docker repository. Assuming they have the correct permissions,
+this will update a file in S3, which our Catapult Concourse Resource is monitoring.
+
+
+### Concourse resource
+
+When the resource discovers a new version of the file, it will download it;
+create a new version of the Concourse resource; display all the above
+metadata; and – assuming it is set up to do so – trigger a new task.
+
+
+### Metadata file
 
 A release is identified by an integer **version**, this number increments
 every release. **version_id** is the S3 version ID which is unique
@@ -114,11 +132,6 @@ Example:
 }
 ```
 
-### Documentation
-
-Run `catapult --help` or `catapult --help=<task>` to know more about
-all the command's options.
-
 ### Why S3?
 
 Storing and driving the release using a single S3 file allows us to:
@@ -126,6 +139,7 @@ Storing and driving the release using a single S3 file allows us to:
 * have a fine-grained control on the release and deploy permission using AWS IAM.
 * keep a history of all the releases and deploys without relying on Concourse.
 * store release's information in a single file using a _custom_ format.
+
 
 Actions
 -------
@@ -191,7 +205,7 @@ Docker
 
 ```bash
 # build an image with catapult installed
-docker build --target=catapult -t release-resource -f Dockerfile .
+docker build --target=catapult -t catapult -f Dockerfile .
 
 # build an image for the concourse resource
 docker build --target=release-resource -t release-resource -f Dockerfile .
@@ -208,3 +222,53 @@ i.e.
 
 A client can upload two releases with the same number twice, but
 concourse will use only one of them and ignore the other one.
+
+
+Dependencies
+-----
+
+
+### Linux
+
+#### `apt`
+
+```
+sudo apt install libgit2 libssl-dev
+```
+
+#### `dnf`/`yum`
+
+```
+sudo dnf install libgit2 openssl-devel
+```
+
+### Mac
+
+```
+brew install libgit2 openssl
+```
+
+
+
+Contributing
+-----
+
+- Create a fork: https://github.com/tessian/catapult/fork
+- Get local development setup ([poetry installation](https://python-poetry.org/docs/#installation))
+```
+git clone git@github.com:<username>/catapult.git
+cd catapult
+poetry install
+poetry run pytest tests/
+```
+- Checkout a new branch and make changes
+```
+git checkout -b my-new-feature
+vim some-changes.py
+vim tests/tests-for-changes.py
+poetry run pytest tests/
+git add some-changes.py tests/tests-for-changes.py
+git commit -m "Adding some-changes"
+git push -u origin HEAD
+```
+- Create new pull request against `master`: https://github.com/Tessian/catapult/compare/master...<username>:my-new-feature
