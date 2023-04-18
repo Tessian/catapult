@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "catapult"
-version = "1.0.3"
+version = "1.0.4"
 description = "CLI Tool to create, deploy, and manage releases."
 authors = ["Fede Figus <federico.figus@tessian.com>"]
 license = "MIT"
