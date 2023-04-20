@@ -4,7 +4,6 @@ Collection of tasks for *catapult*.
 import logging
 import os
 import sys
-from importlib import metadata
 
 import boto3
 import invoke
@@ -14,7 +13,7 @@ from catapult.projects import projects
 from catapult.release import release
 from catapult.tickets import tickets
 
-__version__ = metadata.version(__package__)
+__version__ = "0.1"
 
 root = invoke.Collection()
 
