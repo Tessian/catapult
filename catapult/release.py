@@ -145,7 +145,6 @@ _DATETIME_MAX = pytz.utc.localize(datetime.max)
 
 def _get_bucket():
     config = utils.get_config()
-    print(config)
     if config:
         return config["release"]["s3_bucket"]
     return os.environ["CATAPULT_BUCKET_RELEASES"]
