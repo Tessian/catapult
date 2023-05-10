@@ -86,8 +86,7 @@ fi
 has_image_arg=""
 if [ "${has_image}" == "true" ]; then
   has_image_arg=--has-image
-fi
-if [ "${has_image}" == "false" ]; then
+elif [ "${has_image}" == "false" ]; then
   has_image_arg=--no-has-image
 fi
 
