@@ -31,7 +31,7 @@ class Release:
     version: int
     commit: str
     version_id: str
-    image: str
+    image: Optional[str]
     timestamp: datetime
     author: str
     changelog: str
@@ -369,6 +369,7 @@ def list_releases(name, last, contains, bucket=None, utc=False, profile=None):
         "commit": "git ref to build from.",
         "version": "new version",
         "image-id": "ID of the docker image to release.",
+        "has-image": "Whether the deployment includes a docker image.",
         "image-name": "name of the image to release (default to name)",
         "dry": "prepare a release without committing it",
         "yes": "Automatic yes to prompt",
@@ -386,6 +387,7 @@ def new(
     version=None,
     dry=False,
     yes=False,
+    has_image=True,
     image_name=None,
     image_id=None,
     rollback=False,
@@ -413,7 +415,7 @@ def new(
     else:
         version = int(version)
 
-    if image_id is None:
+    if image_id is None and has_image is True:
         image_id = _get_image_id(ctx, commit_oid, name=name, image_name=image_name)
 
         if image_id is None:

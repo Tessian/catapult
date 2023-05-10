@@ -28,6 +28,8 @@ name=$(jq -r '.source.name' < "$payload")
 bucket=$(jq -r '.source.bucket // ""' < "$payload")
 # commit ref to release
 repository=$(jq -r '.params.repository // ""' < "$payload")
+# Whether the deployment includes a docker image
+has_image=$(jq -r '.source.has_image' < "$payload")
 # file containing the image ID to release
 image_id_file=$(jq -r '.params.image_id // ""' < "$payload")
 # new version
@@ -81,6 +83,14 @@ if [ -n "$version_file" ]; then
   version_arg=--version=$(cat "$version_file")
 fi
 
+has_image_arg=""
+if [ "${has_image}" == "true" ]; then
+  has_image_arg=--has-image
+elif [ "${has_image}" == "false" ]; then
+  has_image_arg=--no-has-image
+fi
+
+
 image_id_arg=""
 if [ -n "$image_id_file" ]; then
   image_id_arg=--image-id=$(cat "$image_id_file")
@@ -103,12 +113,12 @@ if [ "$is_deploy" = "true" ]; then
 
     catapult deploy.start "$name" "$environment" "$version_arg" --bucket="$deploy_bucket" --yes > "$release"
 else
-    if [ -z "$image_id_file" ]; then
-      echo "parameter 'image_id_file' is required when 'is_deploy' is false"
+    if [ "$has_image" != "false" ] && [ -z "$image_id_file" ]; then
+      echo "parameter 'image_id_file' is required when 'is_deploy' is false and 'has_image' is true"
       exit 1
     fi
 
-    catapult release.new "$name" $version_arg $image_id_arg --yes > "$release"
+    catapult release.new "$name" $version_arg $image_id_arg $has_image_arg --yes > "$release"
 fi
 
 version=$(jq -r '.version' < "$release")
